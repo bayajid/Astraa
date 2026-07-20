@@ -1,0 +1,5 @@
+## unit conversion factors
+deg2urad = 17453.292519943294
+asec2urad = 4.848136811095359
+urad2deg = 5.7295779513082324e-05
+urad2asec = 0.2062648062470964

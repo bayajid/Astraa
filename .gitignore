@@ -216,3 +216,26 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# exclude everything
+outputs/plots*
+outputs/tables*
+orbital_simulations*
+tudat_simulate_orbits/simulation_output*
+*.pyc
+*.csv
+*.png
+*.mat
+*.pptx
+*.zip
+*.bsp
+*.dat
+*.html
+*.js
+*.html
+# exception to the rule
+!outputs/tables/.gitkeep 
+!output/plots/.gitkeep 
+!orbital_simulations/.gitkeep
+!tudat_simulate_orbits/simulation_output/.gitkeep
+*.pyc

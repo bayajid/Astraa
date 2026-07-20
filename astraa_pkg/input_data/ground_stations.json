@@ -1,0 +1,39 @@
+{
+    "Munich, DE": {
+        "latitude_deg": 48.137862,
+        "longitude_deg": 11.419831,
+        "altitude_km": 0.52
+    },
+    "Oberpfaffenhofen, DE": {
+        "latitude_deg": 48.08,
+        "longitude_deg": 11.28,
+        "altitude_km": 0
+    },
+    "Tenerife, ES": {
+        "latitude_deg": 28.30083,
+        "longitude_deg": -16.51194,
+        "altitude_km": 0
+    },
+    "Maui, Hawai":{
+        "latitude_deg": 20.7463667,
+        "longitude_deg": -156.4317222,
+        "altitude_km": 0.85
+	},
+	
+    "Haleakala Obs, Hawai": {
+        "latitude_deg": 20.718,
+        "longitude_deg": -156.25,
+        "altitude_km": 3.055
+    },
+    "KSAT, Nemeas, GR": {
+        "latitude_deg": 37.7,
+        "longitude_deg": 22.62,
+        "altitude_km": 0
+    },
+    "Crete Skinakas Obs, GR": {
+        "latitude_deg": 35.21,
+        "longitude_deg": 24.90,
+        "altitude_km": 0
+    }
+        
+} 

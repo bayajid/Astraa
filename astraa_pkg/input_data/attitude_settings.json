@@ -1,0 +1,66 @@
+{"_comment": "All the values of angular velocity and acceleration are in degress/s and deg/s²",
+    "rocketlab_march": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0.03983717, -0.03983717,  0.03983717],
+        "omega_dot_vec": [0.04832422, -0.04832422,  0.04832422],
+        "omega_ddot_vec": [0.33232281, -0.33232281,  0.33232281]
+    },
+    "rotate_all_axes": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0.84, 0.84, 0.84],
+        "omega_dot_vec": [0.012, 0.012, 0.012]
+    },
+    "rotate_swap": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0.84, 0.84, 0.84],
+        "omega_dot_vec": [-0.012, -0.012, -0.012]
+    },
+    "rotate_yaw": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0, 0, 0.84],
+        "omega_dot_vec": [0, 0, 0.012],
+        "omega_ddot_vec": [0, 0, 0]
+    },
+    "rotate_all_pred084": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0.34, 0.34, 0.34],
+        "omega_dot_vec": [0.012, 0.012, 0.012],
+        "omega_ddot_vec": [0.0, 0.0, 0.0]
+    },
+    "rotate_azel_octhw467": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0.84, 0.84, 0.84],
+        "omega_dot_vec": [0, 0, 0],
+        "omega_ddot_vec": [0, 0, 0],
+        "omega_ddot_start": [0, 0, 0],
+        "omega_ddot_swap": [0, -0.5, -0.5],
+        "omega_lim": 0.84
+    },
+    "custom": {
+        "t_0": 0,
+        "t_step": 5e-3,
+        "t_end": 100,
+        "att_ea_0": [0, 0, 0],
+        "omega_vec": [0.5,0.5,0.5],
+        "omega_dot_vec": [0.012, 0.012, 0.012],
+        "omega_ddot_vec": [0, 0, 0]
+    }
+} 

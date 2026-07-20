@@ -1,0 +1,74 @@
+{
+    "name": "leomeo_mixincl7.00h",
+    "t_start": 725824800.0,
+    "t_end": 726429600.0,
+    "generation_date": "2023-06-16 11:16:27.656159",
+    "accelerations_setting": "Earth, SH 32x32, PMG:  Moo, Sun",
+    "ref_frame": "J2000",
+    "frame_origin": "Earth",
+    "integrator": "rk4",
+    "time_step": 10.0,
+    "constellation": {
+        "1": {
+            "id": "leo_polar",
+            "h": 1000,
+            "wdp": [
+                89,
+                1,
+                1,
+                3,
+                1
+            ],
+            "d_omega": 360.0,
+            "w": 0
+        },
+        "2": {
+            "id": "leo_incl",
+            "h": 1000,
+            "wdp": [
+                53,
+                1,
+                1,
+                3,
+                1
+            ],
+            "d_omega": 360.0,
+            "w": 0
+        },
+        "3": {
+            "id": "leo_eq",
+            "h": 1000,
+            "wdp": [
+                0,
+                1,
+                1,
+                3,
+                1
+            ],
+            "d_omega": 360.0,
+            "w": 0
+        },
+        "4": {
+            "id": "meo",
+            "h": 13892,
+            "wdp": [
+                0,
+                1,
+                1,
+                3,
+                1
+            ],
+            "d_omega": 360.0,
+            "w": 0
+        }
+    },
+    "total_sats": 4,
+    "simulation_run_time": 24.200666,
+    "n_function_evaluations": 726429600,
+    "sat_names": [
+        "sat_leo_polar_0_0",
+        "sat_leo_incl_0_0",
+        "sat_leo_eq_0_0",
+        "sat_meo_0_0"
+    ]
+}
