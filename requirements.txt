@@ -1,13 +1,29 @@
-numpy
+# Core numerics / plotting
+numpy<2.0.0
 pandas
 matplotlib
+scipy
+plotly
+
+# GUI
 PyQt5
 PyQtWebEngine
-plotly
-scipy
-tudatpy
-cartopy
+Pillow
+
+# Astrodynamics / geography
+sgp4
 skyfield
 astropy
+cartopy
+
+# Utilities used by examples/astraa.py
+tqdm
+termcolor
 pytz
 requests
+
+# tudatpy is NOT on PyPI — install with conda after creating the env:
+#   conda env create -f environment.yaml
+#   conda activate data_streamer_tudatpy
+#   conda install -c tudat-team -c conda-forge tudatpy pyqt cartopy
+#   pip install -r requirements.txt

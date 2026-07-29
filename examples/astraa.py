@@ -1,5 +1,14 @@
 import sys
 import os
+from pathlib import Path
+
+_EXAMPLES_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _EXAMPLES_DIR.parent
+for _path in (_REPO_ROOT, _EXAMPLES_DIR):
+    _path_str = str(_path)
+    if _path_str not in sys.path:
+        sys.path.insert(0, _path_str)
+
 #from turtle import position, width
 import numpy as np
 import pandas as pd
@@ -17,7 +26,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 from scipy.interpolate import CubicSpline
-from pathlib import Path
 from tqdm import tqdm
 from termcolor import colored
 from sgp4.api import Satrec, jday
@@ -34,9 +42,6 @@ from tudatpy.kernel.astro import element_conversion
 # from tudatpy.kernel import constants
 from tudatpy.util import result2array
 
-
-# Add parent directory to paths
-sys.path.insert(1, os.getcwd()[:os.getcwd().index('astropynaric')+13])
 
 # Import custom modules
 # import basic_tools.vector_operations as vec_calc
@@ -92,19 +97,20 @@ from scipy.spatial.transform import Rotation as R
 
 CET = ZoneInfo("Europe/Berlin") # timezone('Europe/Berlin')
 
-required_version = (3, 10, 17)
+_MIN_PYTHON = (3, 10)
+_MAX_PYTHON = (3, 13)
+current_version = sys.version_info[:3]
 
-# Check the current Python version
-current_version = sys.version_info[:3]  # Get major, minor, and micro parts of the version
-
-if current_version != required_version:    
-    print(colored(f"Python {required_version[0]}.{required_version[1]}.{required_version[2]} is required, ", 'red'))
-    print(colored(f"but you are using Python {current_version[0]}.{current_version[1]}.{current_version[2]}.", 'cyan'))
-    print(colored(f"Please switch to the required Python version and try again.\n", 'yellow'))
-    # sys.exit(1)
-
-else: 
-    print(colored("Python version check passed. You are using the correct version.", 'green'))
+if current_version < _MIN_PYTHON or current_version >= _MAX_PYTHON:
+    print(
+        colored(
+            f"Python {_MIN_PYTHON[0]}.{_MIN_PYTHON[1]}+ (below {_MAX_PYTHON[0]}.{_MAX_PYTHON[1]}) is required; "
+            f"you are using {current_version[0]}.{current_version[1]}.{current_version[2]}.",
+            "yellow",
+        )
+    )
+else:
+    print(colored("Python version check passed.", "green"))
 class DebugWebEnginePage(QWebEnginePage):
     """Custom QWebEnginePage to capture JavaScript console messages"""
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
@@ -117,12 +123,12 @@ class AstraaGUI(QMainWindow):
 
         ## Folder management
         ## Check if folders exist, if not create them
-        Path("examples/input_data").mkdir(parents=True, exist_ok=True)
-        Path("examples/output_data").mkdir(parents=True, exist_ok=True)
+        _EXAMPLES_DIR.joinpath("input_data").mkdir(parents=True, exist_ok=True)
+        _EXAMPLES_DIR.joinpath("output_data").mkdir(parents=True, exist_ok=True)
 
-        ## Set folder paths
-        self.datadir   = os.path.join(os.getcwd(),'examples','input_data')
-        self.outputdir = os.path.join(os.getcwd(),'examples','output_data')
+        ## Set folder paths (anchored to this script, not the process cwd)
+        self.datadir = str(_EXAMPLES_DIR / "input_data")
+        self.outputdir = str(_EXAMPLES_DIR / "output_data")
         
         if not os.path.exists(self.outputdir):
             os.makedirs(self.outputdir)
@@ -6327,8 +6333,12 @@ def main(run_gui):
 
 
 
+def run_app() -> None:
+    """Console entry point for the installed ``astraa`` command."""
+    main(run_gui=True)
+
+
 if __name__ == "__main__":
-    run_gui = 1
-    main(run_gui)
+    run_app()
 
 
