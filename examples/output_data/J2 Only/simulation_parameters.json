@@ -1,0 +1,53 @@
+{
+    "name": "J2 Only",
+    "t_start": 827122800.905463,
+    "t_end": 827126400.905463,
+    "generation_date": "2026-03-18 16:18:38.753435",
+    "accelerations_setting": "Earth, SH 2x0, PMG: ",
+    "integrator": "rk4",
+    "time_step": 60,
+    "constellation": {},
+    "total_sats": 6,
+    "simulation_run_time": 0.0,
+    "n_function_evaluations": 60,
+    "sat_names": [
+        "leo_polar_1",
+        "leo_polar_2",
+        "leo_polar_3_raan",
+        "leo_eq",
+        "leo_incl",
+        "meo_eq"
+    ],
+    "r_index": {
+        "leo_polar_1": [
+            1,
+            2,
+            3
+        ],
+        "leo_polar_2": [
+            7,
+            8,
+            9
+        ],
+        "leo_polar_3_raan": [
+            13,
+            14,
+            15
+        ],
+        "leo_eq": [
+            19,
+            20,
+            21
+        ],
+        "leo_incl": [
+            25,
+            26,
+            27
+        ],
+        "meo_eq": [
+            31,
+            32,
+            33
+        ]
+    }
+}
