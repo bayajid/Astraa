@@ -1,0 +1,47 @@
+{
+  "Medium Precision": {
+    "Percision" : "Medium Precision",
+    "global_frame_origin": "Earth",
+    "global_frame_orientation": "J2000",
+    "accelerations_setting": "Earth, SH 32x32, PMG:  Moon, Sun",
+    "integrator": "rk4",
+    "time_step": 60,
+    "constellation": {},
+    "Max_total_sats": 6,   
+    "n_function_evaluations": 1440,
+    "mass [kg]": {},
+    "reference_area [m³]": {},
+    "drag_coefficient": {},
+    "SRP_coefficient": {}
+  },
+  "High Precision": {
+    "Percision" : "High Precision",
+    "global_frame_origin": "Earth",
+    "global_frame_orientation": "J2000",
+    "accelerations_setting": "Earth, SH 64x64, SRP, Drag, PMG:  Moon, Sun",
+    "integrator": "rk4",
+    "time_step": 1,
+    "constellation": {},
+    "Max_total_sats": 6,
+    "n_function_evaluations": 1440,
+    "mass [kg]": 400,
+    "reference_area [m³]": 3,
+    "drag_coefficient": 2.0,
+    "SRP_coefficient": 1.2
+  },
+  "J2 Only": {
+    "Percision" : "J2 Only",
+    "global_frame_origin": "Earth",
+    "global_frame_orientation": "J2000",
+    "accelerations_setting": "Earth, SH 2x0, PMG: ",
+    "integrator": "rk4",
+    "time_step": 60,
+    "constellation": {},
+    "Max_total_sats": 6,
+    "n_function_evaluations": 1440,
+    "mass [kg]": {},
+    "reference_area [m³]": {},
+    "drag_coefficient": {},
+    "SRP_coefficient": {}
+  }
+} 

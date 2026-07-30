@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.106/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.106/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        html, body, #cesiumContainer {{
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+        }}
+        #controls {{
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(42, 42, 42, 0.9);
+            padding: 12px;
+            border-radius: 8px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            z-index: 1000;
+            max-width: 320px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }}
+        #controls label {{
+            display: block;
+            margin: 8px 0;
+            cursor: pointer;
+        }}
+        #controls input[type="checkbox"] {{
+            margin-right: 8px;
+        }}
+        #elevationData {{
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(42, 42, 42, 0.95);
+            padding: 12px;
+            border-radius: 8px;
+            color: white;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+            max-height: 400px;
+            overflow-y: auto;
+            max-width: 300px;
+            min-width: 250px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }}
+        .elevation-item {{
+            margin: 3px 0;
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }}
+        .elevation-header {{
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #00BFFF;
+            border-bottom: 2px solid #00BFFF;
+            padding-bottom: 4px;
+        }}
+        #plotPanel {{
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30%;
+            background: rgba(30, 30, 30, 0.95);
+            border-top: 2px solid #444;
+            display: none;
+            z-index: 999;
+        }}
+        #plotContent {{
+            width: 100%;
+            height: 100%;
+        }}
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <div id="controls">
+        <label><input type="checkbox" id="showLinks" checked> Show Inter-Satellite Links</label>
+        <label><input type="checkbox" id="showLabels" checked> Show Labels</label>
+        <label><input type="checkbox" id="showElevation" checked> Show Elevation Data</label>
+        <label><input type="checkbox" id="showPlot"> Show Elevation Plot</label>
+        <label><input type="checkbox" id="showRSWFrames" checked> Show RSW Frames</label>
+        <label>Min Elevation: <input type="range" id="minElevation" min="0" max="90" value="5" style="width: 100px;"> <span id="elevationValue">5°</span></label>
+    </div>
+    <div id="elevationData">
+        <div class="elevation-header">Elevation Angles</div>
+        <div id="elevationContent">Calculating...</div>
+    </div>
+    <div id="plotPanel">
+        <div id="plotContent"></div>
+    </div>
+    
+    <script>
+        // Data placeholders injected from Python
+        var n_sats = {n_sats};
+        var n_times = {n_times};
+        var sat_names = {sat_names}; // Already JSON dumped
+        var ecef_states = {ecef_states};  // Already JSON dumped: shape (n_times, n_sats*3)
+        var times_iso = {times_iso};  // Already JSON dumped
+        
+
+        // --- Cesium init ---
+        var viewer = new Cesium.Viewer('cesiumContainer', {{
+            // baseLayer: Cesium.ImageryLayer.fromProviderAsync(
+            // Cesium.IonImageryProvider.fromAssetId(3845),
+            // ),
+            timeline: true,
+            animation: true,
+            terrainProvider: Cesium.createWorldTerrain()
+        }});
+        
+        var scene = viewer.scene;
+        viewer.scene.globe.enableLighting = true;
+        
+        var colors = [
+            Cesium.Color.RED,
+            Cesium.Color.GREEN,
+            Cesium.Color.BLUE,
+            Cesium.Color.YELLOW,
+            Cesium.Color.ORANGE,
+            Cesium.Color.PINK,
+            Cesium.Color.CYAN,
+            Cesium.Color.MAGENTA,
+            Cesium.Color.LIME,
+            Cesium.Color.VIOLET
+        ];
+
+        var start = Cesium.JulianDate.fromIso8601(times_iso[0]);
+        var stop = Cesium.JulianDate.fromIso8601(times_iso[times_iso.length - 1]);
+        
+        viewer.clock.startTime = start.clone();
+        viewer.clock.stopTime = stop.clone();
+        viewer.clock.currentTime = start.clone();
+        viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+        viewer.timeline.zoomTo(start, stop);
+
+        // helper conversions and math
+        function cartesianToArray(c) {{
+            return [c.x, c.y, c.z];
+        }}
+        function arrayToCartesian(a) {{
+            return new Cesium.Cartesian3(a[0], a[1], a[2]);
+        }}
+        function addArrays(a, b) {{ return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }}
+        function subArrays(a, b) {{ return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }}
+        function mulScalar(a, s) {{ return [a[0]*s, a[1]*s, a[2]*s]; }}
+        function norm(a) {{ return Math.sqrt(a[0]*a[0] + a[1]*a[1] + a[2]*a[2]); }}
+        function dot(a, b) {{ return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }}
+        function cross(a, b) {{
+            return [
+                a[1]*b[2] - a[2]*b[1],
+                a[2]*b[0] - a[0]*b[2],
+                a[0]*b[1] - a[1]*b[0]
+            ];
+        }}
+        function normalize(a) {{
+            var n = norm(a);
+            if (n === 0) return [0,0,0];
+            return [a[0]/n, a[1]/n, a[2]/n];
+        }}
+
+        // --- RSW frame computation (matches Python logic) ---
+        function computeRSWFrame(r_vec, v_vec) {{
+            // r_vec, v_vec are arrays [x,y,z] in same reference (ECEF here)
+            var r_hat = normalize(r_vec);
+            var w = cross(r_vec, v_vec);
+            var w_norm = norm(w);
+            if (w_norm === 0) {{
+                // degenerate (co-linear r and v) -> provide fallback
+                w = [0,0,1];
+            }} else {{
+                w = [w[0]/w_norm, w[1]/w_norm, w[2]/w_norm];
+            }}
+            var s_hat = cross(w, r_hat);
+            // return matrix with columns [r_hat, s_hat, w_hat] as arrays
+            return [r_hat, s_hat, w];
+        }}
+
+        // Create dynamic RSW frame entities for each satellite
+        function createRSWFrameEntities(satIndex, length = 500000) {{
+            var frameEntities = {{
+                r: viewer.entities.add({{
+                    id: 'rsw-r-' + satIndex,
+                    polyline: {{
+                        positions: new Cesium.CallbackProperty(function(time, result) {{
+                            if (!document.getElementById('showRSWFrames').checked) {{
+                                return [];
+                            }}
+                            
+                            var satPos = satellites[satIndex].position.getValue(time);
+                            if (!satPos) return [];
+                            
+                            // Get velocity by sampling nearby positions
+                            var dt = 1.0; // 1 second
+                            var timePrev = Cesium.JulianDate.addSeconds(time, -dt, new Cesium.JulianDate());
+                            var timeNext = Cesium.JulianDate.addSeconds(time, dt, new Cesium.JulianDate());
+                            var posPrev = satellites[satIndex].position.getValue(timePrev);
+                            var posNext = satellites[satIndex].position.getValue(timeNext);
+                            
+                            if (!posPrev || !posNext) return [];
+                            
+                            var velocity = Cesium.Cartesian3.subtract(posNext, posPrev, new Cesium.Cartesian3());
+                            Cesium.Cartesian3.multiplyByScalar(velocity, 1.0 / (2.0 * dt), velocity);
+                            
+                            // Compute RSW frame
+                            var r_vec = cartesianToArray(satPos);
+                            var v_vec = cartesianToArray(velocity);
+                            var [r_hat, s_hat, w_hat] = computeRSWFrame(r_vec, v_vec);
+                            
+                            // Create R axis (radial - red)
+                            var rVec = new Cesium.Cartesian3(r_hat[0], r_hat[1], r_hat[2]);
+                            var rEnd = Cesium.Cartesian3.add(
+                                satPos,
+                                Cesium.Cartesian3.multiplyByScalar(rVec, length, new Cesium.Cartesian3()),
+                                new Cesium.Cartesian3()
+                            );
+                            
+                            return [satPos, rEnd];
+                        }}, false),
+                        width: 4,
+                        material: Cesium.Color.RED,
+                        show: true
+                    }}
+                }}),
+                s: viewer.entities.add({{
+                    id: 'rsw-s-' + satIndex,
+                    polyline: {{
+                        positions: new Cesium.CallbackProperty(function(time, result) {{
+                            if (!document.getElementById('showRSWFrames').checked) {{
+                                return [];
+                            }}
+                            
+                            var satPos = satellites[satIndex].position.getValue(time);
+                            if (!satPos) return [];
+                            
+                            // Get velocity by sampling nearby positions
+                            var dt = 1.0; // 1 second
+                            var timePrev = Cesium.JulianDate.addSeconds(time, -dt, new Cesium.JulianDate());
+                            var timeNext = Cesium.JulianDate.addSeconds(time, dt, new Cesium.JulianDate());
+                            var posPrev = satellites[satIndex].position.getValue(timePrev);
+                            var posNext = satellites[satIndex].position.getValue(timeNext);
+                            
+                            if (!posPrev || !posNext) return [];
+                            
+                            var velocity = Cesium.Cartesian3.subtract(posNext, posPrev, new Cesium.Cartesian3());
+                            Cesium.Cartesian3.multiplyByScalar(velocity, 1.0 / (2.0 * dt), velocity);
+                            
+                            // Compute RSW frame
+                            var r_vec = cartesianToArray(satPos);
+                            var v_vec = cartesianToArray(velocity);
+                            var [r_hat, s_hat, w_hat] = computeRSWFrame(r_vec, v_vec);
+                            
+                            // Create S axis (along-track - green)
+                            var sVec = new Cesium.Cartesian3(s_hat[0], s_hat[1], s_hat[2]);
+                            var sEnd = Cesium.Cartesian3.add(
+                                satPos,
+                                Cesium.Cartesian3.multiplyByScalar(sVec, length, new Cesium.Cartesian3()),
+                                new Cesium.Cartesian3()
+                            );
+                            
+                            return [satPos, sEnd];
+                        }}, false),
+                        width: 4,
+                        material: Cesium.Color.GREEN,
+                        show: true
+                    }}
+                }}),
+                w: viewer.entities.add({{
+                    id: 'rsw-w-' + satIndex,
+                    polyline: {{
+                        positions: new Cesium.CallbackProperty(function(time, result) {{
+                                                        
+                            var satPos = satellites[satIndex].position.getValue(time);
+                            if (!satPos) return [];
+                            
+                            // Get velocity by sampling nearby positions
+                            var dt = 1.0; // 1 second
+                            var timePrev = Cesium.JulianDate.addSeconds(time, -dt, new Cesium.JulianDate());
+                            var timeNext = Cesium.JulianDate.addSeconds(time, dt, new Cesium.JulianDate());
+                            var posPrev = satellites[satIndex].position.getValue(timePrev);
+                            var posNext = satellites[satIndex].position.getValue(timeNext);
+                            
+                            if (!posPrev || !posNext) return [];
+                            
+                            var velocity = Cesium.Cartesian3.subtract(posNext, posPrev, new Cesium.Cartesian3());
+                            Cesium.Cartesian3.multiplyByScalar(velocity, 1.0 / (2.0 * dt), velocity);
+                            
+                            // Compute RSW frame
+                            var r_vec = cartesianToArray(satPos);
+                            var v_vec = cartesianToArray(velocity);
+                            var [r_hat, s_hat, w_hat] = computeRSWFrame(r_vec, v_vec);
+                            
+                            // Create W axis (cross-track - blue)
+                            var wVec = new Cesium.Cartesian3(w_hat[0], w_hat[1], w_hat[2]);
+                            var wEnd = Cesium.Cartesian3.add(
+                                satPos,
+                                Cesium.Cartesian3.multiplyByScalar(wVec, length, new Cesium.Cartesian3()),
+                                new Cesium.Cartesian3()
+                            );
+                            
+                            return [satPos, wEnd];
+                        }}, false),
+                        width: 4,
+                        material: Cesium.Color.BLUE,
+                        show: true
+                    }}
+                }})
+            }};
+            return frameEntities;
+        }}
+
+        function computeRSWElevation(los_vec, rsw_matrix) {{
+            // los_vec: array in the same ECEF coords pointing from sat1 -> sat2
+            // rsw_matrix: [r_hat, s_hat, w_hat] columns
+            // want los in RSW: los_rsw = R^T * los
+            // where R columns are r_hat, s_hat, w_hat -> so R^T rows are r_hat, s_hat, w_hat
+            var x = dot(rsw_matrix[0], los_vec);
+            var y = dot(rsw_matrix[1], los_vec);
+            var z = dot(rsw_matrix[2], los_vec);
+            var el_rad = Math.atan2(z, Math.sqrt(x*x + y*y));
+            return (el_rad * 180.0 / Math.PI);
+        }}
+
+        // --- utility to estimate velocity by central difference using Cesium sampling ---
+        function estimateVelocityAt(entity, time, dtSeconds) {{
+            // dtSeconds: e.g. 1.0
+            var tPrev = Cesium.JulianDate.addSeconds(time, -dtSeconds, new Cesium.JulianDate());
+            var tNext = Cesium.JulianDate.addSeconds(time, dtSeconds, new Cesium.JulianDate());
+            var pPrev = entity.position.getValue(tPrev);
+            var pNext = entity.position.getValue(tNext);
+            if (!pPrev || !pNext) return null;
+            var aPrev = cartesianToArray(pPrev);
+            var aNext = cartesianToArray(pNext);
+            var v = mulScalar(subArrays(aNext, aPrev), 1.0 / (2.0 * dtSeconds));
+            return v;
+        }}
+
+        // Create satellite entities (models + sampled positions)
+        var satellites = [];
+        var rswFrames = [];
+        
+        for (var ii = 0; ii < n_sats; ii++) {{
+            var property = new Cesium.SampledPositionProperty();
+            for (var j = 0; j < n_times; j++) {{
+                var idx = ii * 3; // 6 components per satellite (3 position + 3 velocity)
+                var time = Cesium.JulianDate.fromIso8601(times_iso[j]);
+                var position = Cesium.Cartesian3.fromElements(
+                    ecef_states[j][idx],
+                    ecef_states[j][idx+1],
+                    ecef_states[j][idx+2]
+                );
+                property.addSample(time, position);
+                
+                // addLOSinRSW(satellites[ii], satellites[j]);
+            }}
+            
+            var entity = viewer.entities.add({{
+                id: 'sat-' + sat_names[ii],
+                name: sat_names[ii],
+                availability: new Cesium.TimeIntervalCollection([new Cesium.TimeInterval({{
+                    start: start,
+                    stop: stop
+                }})]),
+                position: property,
+                // orientation
+                orientation: new Cesium.VelocityOrientationProperty(property),
+                box: {{
+                    dimensions: new Cesium.Cartesian3(50000, 50000, 50000),
+                    material: colors[ii % colors.length],
+                    outline: true,
+                    outlineColor: Cesium.Color.WHITE
+                }},                           
+                point: {{
+                    pixelSize: 8,
+                    color: colors[ii % colors.length],
+                    outlineColor: Cesium.Color.WHITE,
+                    outlineWidth: 1,
+                    heightReference: Cesium.HeightReference.NONE,
+                    show: false
+                }},
+                // Satellite body as box
+                box: {{
+                    dimensions: new Cesium.Cartesian3(50000, 50000, 50000),
+                    material: colors[ii % colors.length],
+                    outline: true,
+                    outlineColor: Cesium.Color.WHITE
+                }},
+                label: {{
+                    text: sat_names[ii],
+                    font: 'bold 14px sans-serif',
+                    fillColor: Cesium.Color.YELLOW,
+                    outlineColor: Cesium.Color.BLACK,
+                    outlineWidth: 2,
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -40),
+                    show: true
+                }},
+                path: {{
+                    resolution: 1,
+                    material: colors[ii % colors.length].withAlpha(0.7),
+                    width: 3,
+                    leadTime: 0,
+                    trailTime: 3600
+                }}
+            }});
+
+            satellites.push(entity);
+            
+            // Create RSW frame for this satellite
+            rswFrames.push(createRSWFrameEntities(ii));
+            
+        }}
+
+        // Inter-satellite link entities
+        var links = [];
+        for (var i = 0; i < n_sats; i++) {{
+            for (var j = i + 1; j < n_sats; j++) {{
+                var link = viewer.entities.add({{
+                    id: 'link-' + i + '-' + j,
+                    polyline: {{
+                        positions: new Cesium.CallbackProperty(function(i, j) {{
+                            return function(time, result) {{
+                                var pos1 = satellites[i].position.getValue(time);
+                                var pos2 = satellites[j].position.getValue(time);
+                            
+                                if (pos1 && pos2) {{
+                                    // Check visibility conditions
+                                    if (areSatellitesVisible(pos1, pos2, time)) {{
+                                        return [pos1, pos2];
+                                    }}
+                                }}
+                                return [];
+                            }};
+                        }}(i, j), false),
+                        width: 2,
+                        material: new Cesium.PolylineDashMaterialProperty({{
+                            color: Cesium.Color.CYAN.withAlpha(0.8),
+                            dashLength: 20,
+                            dashPattern: parseInt('1111000011110000', 2)
+                        }}),
+                        clampToGround: false,
+                        followSurface: false,
+                        arcType: Cesium.ArcType.NONE,
+                        show: true
+                    }}
+                }});
+                links.push(link);
+            }}
+        }}
+
+        
+
+        // Earth obstruction check (same idea)
+        function hasLineOfSight(pos1, pos2) {{
+            if (!pos1 || !pos2) return false;
+            var earthRadiusSquared = 6371000 * 6371000;
+            var dir = Cesium.Cartesian3.subtract(pos2, pos1, new Cesium.Cartesian3());
+            var distance = Cesium.Cartesian3.magnitude(dir);
+            if (distance === 0) return false;
+            Cesium.Cartesian3.normalize(dir, dir);
+            var steps = Math.max(10, Math.floor(distance / 100000));
+            for (var i = 1; i < steps; i++) {{
+                var t = i / steps;
+                var point = Cesium.Cartesian3.multiplyByScalar(dir, distance * t, new Cesium.Cartesian3());
+                Cesium.Cartesian3.add(pos1, point, point);
+                var distanceFromCenterSq = Cesium.Cartesian3.magnitudeSquared(point);
+                if (distanceFromCenterSq < earthRadiusSquared) {{
+                    return false;
+                }}
+            }}
+            return true;
+        }}
+
+        // hasMinimumElevation will now use RSW-based computation
+        function hasMinimumElevation(pos1, pos2, minElevationDeg, time) {{
+            // Calculate elevation angle from pos1 to pos2
+            var earthCenter = new Cesium.Cartesian3(0, 0, 0);
+            var toSat1 = Cesium.Cartesian3.subtract(pos1, earthCenter, new Cesium.Cartesian3());
+            var linkVector = Cesium.Cartesian3.subtract(pos2, pos1, new Cesium.Cartesian3());
+            
+            // Local horizontal plane at pos1
+            var normal1 = Cesium.Cartesian3.normalize(toSat1, new Cesium.Cartesian3());
+            
+            // Project link vector onto the plane perpendicular to normal1
+            var dot = Cesium.Cartesian3.dot(linkVector, normal1);
+            var projectedLink = Cesium.Cartesian3.multiplyByScalar(normal1, dot, new Cesium.Cartesian3());
+            var horizontalComponent = Cesium.Cartesian3.subtract(linkVector, projectedLink, new Cesium.Cartesian3());
+            
+            if (Cesium.Cartesian3.magnitude(horizontalComponent) === 0) return true;
+
+            // Calculate elevation angle
+            var elevationRad = Math.atan2(dot, Cesium.Cartesian3.magnitude(horizontalComponent));
+            var elevationDeg = Cesium.Math.toDegrees(Math.abs(elevationRad));
+            
+            var p1 = cartesianToArray(pos1);
+            var p2 = cartesianToArray(pos2);
+            var los = subArrays(p2, p1);
+
+            // Estimate velocity of satellite 1 using central difference (1 second default)
+            var v1 = estimateVelocityAt(satellites[ getSatelliteIndexByPositionEntity(pos1) ], viewer.clock.currentTime, 1.0);
+            // fallback: approximate using pos difference if velocity unavailable
+            if (!v1) {{
+                // small forward diff
+                var smallDt = 1.0;
+                var tNow = viewer.clock.currentTime;
+                var tFut = Cesium.JulianDate.addSeconds(tNow, smallDt, new Cesium.JulianDate());
+                var pFut = satellites[ getSatelliteIndexByPositionEntity(pos1) ].position.getValue(tFut);
+                if (pFut) {{
+                    v1 = mulScalar(subArrays(cartesianToArray(pFut), p1), 1.0 / smallDt);
+                }} else {{
+                    v1 = [0,0,0]; // as last resort
+                }}
+            }}
+            // compute RSW matrix at sat1
+            var rsw = computeRSWFrame(p1, v1);
+            var el_rsw = computeRSWElevation(los, rsw);
+
+            return elevationDeg >= minElevationDeg;
+        }}
+
+        // Helper to find satellite index by comparing positions (approx)
+        function getSatelliteIndexByPositionEntity(cartesian) {{
+            // This is a heuristic: find the entity whose current position is nearest to the given cartesian
+            var arr = cartesianToArray(cartesian);
+            var bestIdx = 0;
+            var bestDist = Infinity;
+            for (var i = 0; i < satellites.length; i++) {{
+                var p = satellites[i].position.getValue(viewer.clock.currentTime);
+                if (!p) continue;
+                var pa = cartesianToArray(p);
+                var d = norm(subArrays(arr, pa));
+                if (d < bestDist) {{
+                    bestDist = d;
+                    bestIdx = i;
+                }}
+            }}
+            return bestIdx;
+        }}
+
+        // --- Draw LOS vector in RSW frame ---
+        function addLOSinRSW(satEntity, targetEntity, color=Cesium.Color.YELLOW) {{
+            if (!satEntity || !targetEntity) {{
+                console.warn("addLOSinRSW: missing sat or target entity");
+                return;
+            }}
+            var losLine = viewer.entities.add({{
+                parent: satEntity,   // attach to the sat's local frame
+                polyline: {{
+                    positions: new Cesium.CallbackProperty(function(time, result) {{
+                        var pos1 = satEntity.position.getValue(time);
+                        var pos2 = targetEntity.position.getValue(time);
+                        if (!pos1 || !pos2) return [];
+
+                        // Convert to arrays
+                        var r1 = cartesianToArray(pos1);
+                        var r2 = cartesianToArray(pos2);
+                        var v1 = estimateVelocityAt(satEntity, time, 1.0);
+                        if (!v1) v1 = [0,0,0];
+
+                        // Build RSW frame at sat1
+                        var rsw = computeRSWFrame(r1, v1);
+
+                        // LOS in ECEF
+                        var los = subArrays(r2, r1);
+
+                        // Transform LOS into RSW coordinates
+                        var los_r = dot(rsw[0], los);
+                        var los_s = dot(rsw[1], los);
+                        var los_w = dot(rsw[2], los);
+
+                        // Return polyline in local RSW frame
+                        return [
+                            Cesium.Cartesian3.fromElements(0,0,0),
+                            Cesium.Cartesian3.fromElements(los_r, los_s, los_w)
+                        ];
+                    }}, false),
+                    width: 3,
+                    material: color
+                }}
+            }});
+            return losLine;
+        }}
+
+        
+        function areSatellitesVisible(pos1, pos2, time) {{
+            if (!pos1 || !pos2) return false;
+            // Earth obstruction
+            if (!hasLineOfSight(pos1, pos2)) return false;
+            var minElevation = parseFloat(document.getElementById('minElevation').value) || 5;
+            if (!hasMinimumElevation(pos1, pos2, minElevation, time)) return false;
+            return true;
+        }}
+
+        // DOM elements
+        var elevationDataDiv = document.getElementById("elevationData");
+        var elevationContent = document.getElementById("elevationContent");
+
+        // For plotting
+        var elevationHistory = {{}};
+        var timeHistory = [];
+
+        function updateElevationAngles(time) {{
+            if (!document.getElementById('showElevation').checked) {{
+                elevationDataDiv.style.display = 'none';
+                return;
+            }}
+            elevationDataDiv.style.display = 'block';
+            elevationContent.innerHTML = '';
+
+            var currentElevations = {{}};
+            var currentElevations_rsw = {{}};
+
+            for (var i = 0; i < n_sats; i++) {{
+                for (var j = i + 1; j < n_sats; j++) {{
+                    var pos1 = satellites[i].position.getValue(time);
+                    var pos2 = satellites[j].position.getValue(time);
+
+                    if (pos1 && pos2) {{
+                        
+                        // Calculate the elevation angle between satellites i and j
+                        var earthCenter = new Cesium.Cartesian3(0, 0, 0);
+                        var toSat1 = Cesium.Cartesian3.subtract(pos1, earthCenter, new Cesium.Cartesian3());
+                        var linkVector = Cesium.Cartesian3.subtract(pos2, pos1, new Cesium.Cartesian3());
+
+                        // Local horizontal plane at pos1
+                        var normal1 = Cesium.Cartesian3.normalize(toSat1, new Cesium.Cartesian3());
+                        // Project link vector onto the plane perpendicular to normal1
+                        var dot = Cesium.Cartesian3.dot(linkVector, normal1);
+                        var projectedLink = Cesium.Cartesian3.multiplyByScalar(normal1, dot, new Cesium.Cartesian3());
+                        var horizontalComponent = Cesium.Cartesian3.subtract(linkVector, projectedLink, new Cesium.Cartesian3());
+
+                        var p1 = cartesianToArray(pos1);
+                        var p2 = cartesianToArray(pos2);
+                        var los = subArrays(p2, p1);
+
+                        // estimate velocity at sat i
+                        var v1 = estimateVelocityAt(satellites[i], time, 1.0);
+                        if (!v1) {{
+                            // fallback to forward diff
+                            var tF = Cesium.JulianDate.addSeconds(time, 1.0, new Cesium.JulianDate());
+                            var pf = satellites[i].position.getValue(tF);
+                            if (pf) {{
+                                v1 = mulScalar(subArrays(cartesianToArray(pf), p1), 1.0);
+                            }} else {{
+                                v1 = [0,0,0];
+                            }}
+                        }}
+
+                        var rsw = computeRSWFrame(p1, v1);
+                        var elevationDeg_rsw = computeRSWElevation(los, rsw);
+
+                        var isVisible = areSatellitesVisible(pos1, pos2, time);
+                        var visibilityText = isVisible ? "✓" : "✗";
+                        var textColor = elevationDeg_rsw > 0 ? "#00ff00" : "#ff6666";
+
+                        // var elevationItem = document.createElement("div");
+                        // elevationItem.classList.add("elevation-item");
+                        var satName1 = sat_names[i] || ('Sat-' + i);
+                        var satName2 = sat_names[j] || ('Sat-' + j);
+                        var pairKey = satName1 + '-' + satName2;
+
+                        currentElevations_rsw[pairKey] = elevationDeg_rsw;
+                                 
+                        // Elevation in ECEF for Cesium display
+                        var elevationDeg = 0;
+                        if (Cesium.Cartesian3.magnitude(horizontalComponent) !== 0) {{
+                            // Calculate the elevation angle in radians
+                            var elevationRad = Math.atan2(dot, Cesium.Cartesian3.magnitude(horizontalComponent));
+                            elevationDeg = Cesium.Math.toDegrees(Math.abs(elevationRad));
+                        }}
+
+                        // Create HTML elements for each elevation value
+                        var elevationItem = document.createElement("div");
+                        elevationItem.classList.add("elevation-item");
+                        
+                        // Use satellite names instead of indices for clarity
+                        // var satName1 = sat_names[i] || ('Sat-' + i);
+                        // var satName2 = sat_names[j] || ('Sat-' + j);
+                        // var pairKey = satName1 + '-' + satName2;
+                        
+                        // Check if satellites are visible to each other
+                        var isVisible = areSatellitesVisible(pos1, pos2, time);
+                        var visibilityText = isVisible ? "✓" : "✗";
+                        var textColor = elevationDeg_rsw > 0 ? "#00ff00" : "#ff6666"; //isVisible ? "#00ff88" : "#ff6666";
+                        
+                        elevationItem.innerHTML = '<span style="color: ' + textColor + '; font-weight: bold;">' + 
+                            visibilityText + '</span> ' + satName1 + ' → ' + satName2 + ': <span style="color: #00BFFF; font-weight: bold;">' + 
+                            elevationDeg_rsw.toFixed(1) + '°</span>';
+                        elevationContent.appendChild(elevationItem);
+                        // Store for plotting
+                        currentElevations[pairKey] = elevationDeg;
+                    }}
+                }}
+            }}
+
+            updatePlotData(time, currentElevations_rsw);
+        }}
+
+        function updatePlotData(time, elevations) {{
+            var timeStr = Cesium.JulianDate.toIso8601(time);
+
+            if (timeHistory.length > 100) {{
+                timeHistory.shift();
+                for (var key in elevationHistory) {{
+                    elevationHistory[key].shift();
+                }}
+            }}
+
+            timeHistory.push(timeStr);
+
+            for (var pairKey in elevations) {{
+                if (!elevationHistory[pairKey]) {{
+                    elevationHistory[pairKey] = [];
+                }}
+                elevationHistory[pairKey].push(elevations[pairKey]);
+            }}
+
+            if (document.getElementById('showPlot').checked) {{
+                updatePlot();
+            }}
+        }}
+
+        function updatePlot() {{
+            if (timeHistory.length === 0) return;
+            var traces = [];
+            var colorPalette = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#dda0dd'];
+            var colorIndex = 0;
+
+            for (var pairKey in elevationHistory) {{
+                traces.push({{
+                    x: timeHistory,
+                    y: elevationHistory[pairKey],
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: pairKey,
+                    line: {{color: colorPalette[colorIndex % colorPalette.length], width: 2}},
+                    marker: {{size: 4}}
+                }});
+                colorIndex++;
+            }}
+
+            var layout = {{
+                title: {{
+                    text: 'Satellite Elevation Angles Over Time [RSW frame]',
+                    font: {{color: 'white'}}
+                }},
+                xaxis: {{
+                    title: 'Time',
+                    color: 'white',
+                    gridcolor: '#444'
+                }},
+                yaxis: {{
+                    title: 'Elevation Angle (degrees)',
+                    color: 'white',
+                    gridcolor: '#444'
+                }},
+                paper_bgcolor: 'rgba(30,30,30,0.9)',
+                plot_bgcolor: 'rgba(30,30,30,0.9)',
+                font: {{color: 'white'}},
+                legend: {{
+                    font: {{color: 'white'}}
+                }}
+            }};
+
+            Plotly.newPlot('plotContent', traces, layout, {{responsive: true}});
+        }}
+
+        // Control handlers
+        document.getElementById('showLinks').addEventListener('change', function(e) {{
+            links.forEach(function(link) {{
+                link.polyline.show = e.target.checked;
+            }});
+        }});
+
+        document.getElementById('showLabels').addEventListener('change', function(e) {{
+            satellites.forEach(function(sat) {{
+                sat.label.show = e.target.checked;
+            }});
+        }});
+
+        document.getElementById('showElevation').addEventListener('change', function(e) {{
+            if (!e.target.checked) {{
+                elevationDataDiv.style.display = 'none';
+            }}
+        }});
+
+        document.getElementById('showPlot').addEventListener('change', function(e) {{
+            var plotPanel = document.getElementById('plotPanel');
+            var cesiumContainer = document.getElementById('cesiumContainer');
+            if (e.target.checked) {{
+                plotPanel.style.display = 'block';
+                cesiumContainer.style.height = '70%';
+                updatePlot();
+            }} else {{
+                plotPanel.style.display = 'none';
+                cesiumContainer.style.height = '100%';
+            }}
+            viewer.resize();
+        }});
+
+        document.getElementById('showRSWFrames').addEventListener('change', function(e) {{
+            // The RSW frames will automatically show/hide based on the checkbox
+            // since they use the CallbackProperty that checks the checkbox state
+        }});
+
+        document.getElementById('minElevation').addEventListener('input', function(e) {{
+            document.getElementById('elevationValue').textContent = e.target.value + '°';
+        }});
+
+        // update loop (throttled)
+        var lastUpdate = 0;
+        viewer.scene.preRender.addEventListener(function (scene, time) {{
+            var now = Date.now();
+            if (now - lastUpdate > 100) {{
+                updateElevationAngles(viewer.clock.currentTime);
+                lastUpdate = now;
+            }}
+        }});
+
+        // initial camera zoom
+        viewer.zoomTo(viewer.entities).then(function() {{
+            var earthCenter = Cesium.Cartesian3.fromDegrees(0, 0, 0);
+            viewer.camera.lookAt(earthCenter, new Cesium.Cartesian3(0, 0, 20000000));
+            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+        }});
+
+        // Enable camera to track the satellite you click
+        var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        handler.setInputAction(function(click) {{
+            var pickedObject = viewer.scene.pick(click.position);
+            if (Cesium.defined(pickedObject) && pickedObject.id) {{
+                viewer.trackedEntity = pickedObject.id; // lock camera to this sat
+            }}
+        }}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        if (!Cesium.defined(pickedObject)) {{
+            viewer.trackedEntity = undefined; // frees the camera
+        }}
+
+
+    </script>
+</body>
+</html>

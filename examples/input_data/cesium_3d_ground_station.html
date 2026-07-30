@@ -1,0 +1,192 @@
+<html>
+<head>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.106/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.106/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+</head>
+<body>
+    <div id="cesiumContainer" style="width:100%; height:900px;"></div>
+    <script>
+        var longitudes = {longitudes};
+        var latitudes = {latitudes};
+        var altitudes = {altitudes};
+        var passIntervals = {pass_intervals};
+        var passStartPositionsData = {pass_start_positions};
+        var passEndPositionsData = {pass_end_positions};
+
+        var viewer = new Cesium.Viewer('cesiumContainer', {{
+            timeline: true,
+            animation: true
+        }});
+        viewer.scene.globe.enableLighting = true;
+
+        // Ground track polyline at real altitude
+        var groundTrackPositions = [];
+        for (var i = 0; i < longitudes.length; i++) {{
+            groundTrackPositions.push(
+                Cesium.Cartesian3.fromDegrees(longitudes[i], latitudes[i], altitudes[i])
+            );
+        }}
+        viewer.entities.add({{
+            name: 'Ground Track',
+            polyline: {{
+                positions: groundTrackPositions,
+                width: 2,
+                material: Cesium.Color.BLACK.withAlpha(0.6),
+                clampToGround: false
+            }}
+        }});
+
+        // Ground track projection on surface
+        var surfacePositions = [];
+        for (var i = 0; i < longitudes.length; i++) {{
+            surfacePositions.push(
+                Cesium.Cartesian3.fromDegrees(longitudes[i], latitudes[i], 0)
+            );
+        }}
+        viewer.entities.add({{
+            name: 'Ground Track Projection',
+            polyline: {{
+                positions: surfacePositions,
+                width: 1,
+                material: Cesium.Color.GRAY.withAlpha(0.3),
+                clampToGround: true
+            }}
+        }});
+
+        // Ground station marker
+        viewer.entities.add({{
+            name: {selected_gs},
+            position: Cesium.Cartesian3.fromDegrees({gs_lon}, {gs_lat}, {gs_alt}),
+            point: {{ pixelSize: 15, color: Cesium.Color.RED }},
+            label: {{
+                text: {selected_gs},
+                font: '16px sans-serif',
+                fillColor: Cesium.Color.RED,
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                outlineWidth: 2,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: new Cesium.Cartesian2(0, -20)
+            }}
+        }});
+
+        // Pass start markers (green)
+        for (var i = 0; i < passStartPositionsData.length; i++) {{
+            var p = passStartPositionsData[i];
+            viewer.entities.add({{
+                name: 'Downlink Start',
+                position: Cesium.Cartesian3.fromDegrees(p[0], p[1], p[2]),
+                point: {{ pixelSize: 12, color: Cesium.Color.GREEN }},
+                label: {{
+                    text: 'AOS',
+                    font: '14px sans-serif',
+                    fillColor: Cesium.Color.GREEN,
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -10)
+                }}
+            }});
+        }}
+
+        // Pass end markers (orange)
+        for (var i = 0; i < passEndPositionsData.length; i++) {{
+            var p = passEndPositionsData[i];
+            viewer.entities.add({{
+                name: 'Downlink End',
+                position: Cesium.Cartesian3.fromDegrees(p[0], p[1], p[2]),
+                point: {{ pixelSize: 12, color: Cesium.Color.ORANGE }},
+                label: {{
+                    text: 'LOS',
+                    font: '14px sans-serif',
+                    fillColor: Cesium.Color.ORANGE,
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -10)
+                }}
+            }});
+        }}
+
+        var clockStart = Cesium.JulianDate.fromIso8601({time_iso});
+        var clockStop = Cesium.JulianDate.addSeconds(clockStart, longitudes.length - 1, new Cesium.JulianDate());
+        viewer.clock.startTime = clockStart.clone();
+        viewer.clock.stopTime = clockStop.clone();
+        viewer.clock.currentTime = clockStart.clone();
+        viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+        viewer.timeline.zoomTo(clockStart, clockStop);
+
+        var property = new Cesium.SampledPositionProperty();
+        for (var i = 0; i < longitudes.length; i++) {{
+            var t = Cesium.JulianDate.addSeconds(clockStart, i, new Cesium.JulianDate());
+            var pos = Cesium.Cartesian3.fromDegrees(longitudes[i], latitudes[i], altitudes[i]);
+            property.addSample(t, pos);
+        }}
+
+        var satEntity = viewer.entities.add({{
+            id: 'animated-satellite',
+            name: {satellite},
+            availability: new Cesium.TimeIntervalCollection([new Cesium.TimeInterval({{
+                start: clockStart,
+                stop: clockStop
+            }})]),
+            position: property,
+            orientation: new Cesium.VelocityOrientationProperty(property),
+            box: {{
+                dimensions: new Cesium.Cartesian3(50000, 50000, 50000),
+                material: Cesium.Color.BLUE,
+                outline: true,
+                outlineColor: Cesium.Color.WHITE
+            }},
+            point: {{
+                pixelSize: 12,
+                color: Cesium.Color.BLUE,
+                outlineColor: Cesium.Color.WHITE,
+                outlineWidth: 2
+            }},
+            label: {{
+                text: {satellite},
+                font: 'bold 16px sans-serif',
+                fillColor: Cesium.Color.BLUE,
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                outlineWidth: 2,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: new Cesium.Cartesian2(0, -20)
+            }},
+            path: {{
+                resolution: 1,
+                material: Cesium.Color.BLUE.withAlpha(0.7),
+                width: 4,
+                leadTime: 0,
+                trailTime: longitudes.length
+            }}
+        }});
+        var gsPosition = Cesium.Cartesian3.fromDegrees({gs_lon}, {gs_lat}, {gs_alt});
+        for (var p = 0; p < passIntervals.length; p++) {{
+            (function(interval) {{
+                var passStart = Cesium.JulianDate.addSeconds(clockStart, interval.start_idx, new Cesium.JulianDate());
+                var passStop = Cesium.JulianDate.addSeconds(clockStart, interval.end_idx, new Cesium.JulianDate());
+                viewer.entities.add({{
+                    availability: new Cesium.TimeIntervalCollection([new Cesium.TimeInterval({{
+                        start: passStart,
+                        stop: passStop
+                    }})]),
+                    polyline: {{
+                        positions: new Cesium.CallbackProperty(function(time, result) {{
+                            var satPos = property.getValue(time, result);
+                            if (!Cesium.defined(satPos)) return [gsPosition, gsPosition];
+                            return [gsPosition, satPos];
+                        }}, false),
+                        width: 2,
+                        material: new Cesium.PolylineGlowMaterialProperty({{
+                            glowPower: 0.25,
+                            color: Cesium.Color.CYAN.withAlpha(0.85)
+                        }})
+                    }}
+                }});
+            }})(passIntervals[p]);
+        }}
+
+        viewer.zoomTo(satEntity);
+    </script>
+</body>
+</html>
