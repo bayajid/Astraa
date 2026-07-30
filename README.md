@@ -12,8 +12,8 @@ ASTRAA depends on **tudatpy** and a full **PyQt5** stack; those are most reliabl
 
 ```bash
 conda env create -f environment.yaml
-conda activate data_streamer_tudatpy
-conda install -c tudat-team -c conda-forge tudatpy pyqt cartopy
+conda activate tudat
+conda install -c tudat-team -c conda-forge tudatpy pyqt pyqtwebengine cartopy
 pip install -r requirements.txt
 pip install -e .
 ```

@@ -1,6 +1,17 @@
-import sys
-import os
 from pathlib import Path
+import os
+import sys
+
+prefix = sys.prefix
+
+os.environ["QT_PLUGIN_PATH"] = os.path.join(prefix, "plugins")
+os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(prefix, "plugins", "platforms")
+
+os.environ["QTWEBENGINEPROCESS_PATH"] = os.path.join(prefix, "libexec", "QtWebEngineProcess")
+
+os.environ["QTWEBENGINE_RESOURCES_PATH"] = os.path.join(prefix, "resources")
+os.environ["QTWEBENGINE_LOCALES_PATH"] = os.path.join(prefix, "translations")
+
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _EXAMPLES_DIR.parent
@@ -19,7 +30,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QC
                             QSpinBox, QDoubleSpinBox, QTabWidget, QGroupBox, QFormLayout, QDateEdit, QSplashScreen, QAction, QMessageBox, QFrame, QTextEdit)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize, QDate,QDateTime
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings, QWebEnginePage
-from PyQt5.QtWebEngine import QtWebEngine
+# from PyQt5.QtWebEngine import QtWebEngine
 
 import tempfile, os, webbrowser
 import plotly.graph_objects as go
@@ -33,14 +44,26 @@ from sgp4.api import Satrec, jday
 import json
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont
 # Load tudatpy modules
-from tudatpy.kernel.interface import spice
-# from tudatpy.data import save2txt
-from tudatpy.kernel import numerical_simulation
-from tudatpy.kernel.numerical_simulation import environment_setup
-from tudatpy.kernel.numerical_simulation import propagation_setup
-from tudatpy.kernel.astro import element_conversion
-# from tudatpy.kernel import constants
-from tudatpy.util import result2array
+# from tudatpy.kernel.interface import spice
+# # from tudatpy.data import save2txt
+# from tudatpy.kernel import dynamics
+# from tudatpy.kernel.dynamics import environment_setup
+# from tudatpy.kernel.dynamics import propagation_setup
+# from tudatpy.kernel.astro import element_conversion
+# # from tudatpy.kernel import constants
+# from tudatpy.util import result2array
+
+from tudatpy.kernel import dynamics
+from tudatpy.kernel.dynamics import environment_setup
+from tudatpy.kernel.dynamics import propagation_setup
+
+
+
+import tudat_tools.simulation_utilities as util
+import tudat_tools.data_processing.data_processing_utilities as dputil
+import tudat_tools.tudat_converter as tudatconv
+import tudat_tools.data_processing.data_loading as load
+from tudat_tools.astro_simulations.astro_moon_rooftop_azel import ae_roof2sun
 
 
 # Import custom modules
@@ -57,11 +80,7 @@ import basic_tools.in_out as io
 import pointing_calculations.ae_calculation as ae_calc
 import prediction_methods.interpolators as interp
 import prediction_methods.j2propagator as j2prop
-import tudat_tools.simulation_utilities as util
-import tudat_tools.data_processing.data_processing_utilities as dputil
-import tudat_tools.tudat_converter as tudatconv
-import tudat_tools.data_processing.data_loading as load
-from tudat_tools.astro_simulations.astro_moon_rooftop_azel import ae_roof2sun
+
 import attitude_tools.conversions as att_conv
 import analyses.attitude_predictions.attitude_prediction_utlities as att_pred
 
@@ -325,7 +344,7 @@ class AstraaGUI(QMainWindow):
         # Set custom page for console logging
         #self.orbit_plot.setPage(DebugWebEnginePage(self.orbit_plot))
         # Enable WebGL and related settings
-        QtWebEngine.initialize()  # Ensure WebEngine is initialized
+        # QtWebEngine.initialize()  # Ensure WebEngine is initialized
         settings = self.orbit_plot.settings()
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True) 
         settings.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled, False)  # Disable GPU canvas
@@ -3557,7 +3576,13 @@ class AstraaGUI(QMainWindow):
         )
         
         # Create simulation object and propagate dynamics
-        dynamics_simulator = numerical_simulation.SingleArcSimulator(
+        # dynamics_simulator = dynamics.SingleArcSimulator(
+        #     bodies, integrator_settings, propagator_settings,
+        #     print_dependent_variable_data=False,
+        #     print_state_data=False
+        # )
+        
+        dynamics_simulator =  dynamics.SingleArcSimulator(
             bodies, integrator_settings, propagator_settings,
             print_dependent_variable_data=False,
             print_state_data=False
@@ -6294,7 +6319,7 @@ class AstraaGUI(QMainWindow):
 
 
 def main(run_gui):
-    QtWebEngine.initialize()
+    # QtWebEngine.initialize()
 
     if run_gui:
         app = QApplication(sys.argv)

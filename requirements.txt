@@ -6,8 +6,8 @@ scipy
 plotly
 
 # GUI
-PyQt5
-PyQtWebEngine
+# PyQt5
+# PyQtWebEngine
 Pillow
 
 # Astrodynamics / geography

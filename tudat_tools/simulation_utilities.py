@@ -1,7 +1,8 @@
 ## Here, useful functions will be saved modular simulation purposes
 # such as functions to define the acceleration settings, generate simulation inputs
 import numpy as np 
-from tudatpy.kernel.numerical_simulation import propagation_setup
+# from tudatpy.kernel.numerical_simulation import propagation_setup
+from tudatpy.kernel.dynamics import propagation_setup
 
 class select_acceleration_model():
     def __init__(self) -> None:
@@ -247,9 +248,14 @@ if __name__ == "__main__":
     # Load tudatpy modules
     from tudatpy.kernel.interface import spice
     from tudatpy.data import save2txt
-    from tudatpy.kernel import numerical_simulation
-    from tudatpy.kernel.numerical_simulation import environment_setup
-    from tudatpy.kernel.numerical_simulation import propagation_setup
+    # from tudatpy.kernel import numerical_simulation
+    # from tudatpy.kernel.numerical_simulation import environment_setup
+    # from tudatpy.kernel.numerical_simulation import propagation_setup
+
+    from tudatpy.kernel import dynamics
+    from tudatpy.kernel.dynamics import environment_setup
+    from tudatpy.kernel.dynamics import propagation_setup
+
     from tudatpy.kernel.astro import element_conversion
     from tudatpy.kernel import constants
     from tudatpy.util import result2array
