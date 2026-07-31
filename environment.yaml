@@ -1,4 +1,4 @@
-name: data_streamer_tudatpy
+name: tudat
 channels:
   - conda-forge
   - tudat-team

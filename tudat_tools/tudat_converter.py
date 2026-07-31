@@ -2,14 +2,20 @@
 # are normally too tediosu to implement
 from tudatpy.kernel.interface import spice
 from tudatpy.data import save2txt
-from tudatpy.kernel import numerical_simulation
-from tudatpy.kernel.numerical_simulation import environment_setup, environment
-from tudatpy.kernel.numerical_simulation import propagation_setup
-from tudatpy.kernel.numerical_simulation.environment_setup import rotation_model
-from tudatpy.kernel.numerical_simulation import estimation_setup
+# from tudatpy.kernel import numerical_simulation
+# from tudatpy.kernel.numerical_simulation import environment_setup, environment
+# from tudatpy.kernel.numerical_simulation import propagation_setup
+# from tudatpy.kernel.numerical_simulation.environment_setup import rotation_model
+# from tudatpy.kernel.numerical_simulation import estimation_setup
+
+from tudatpy.kernel import dynamics
+from tudatpy.kernel.dynamics import environment_setup, propagation_setup
+
+#TODO CHECK IMPORTS
+
 from tudatpy.kernel.astro import frame_conversion
 from tudatpy.kernel.astro import element_conversion
-from tudatpy.kernel.astro import time_conversion
+# from tudatpy.kernel.astro import time_conversion
 from tudatpy.kernel import constants
 from tudatpy.util import result2array
 
@@ -17,7 +23,7 @@ import os
 import sys
 import numpy as np
 import datetime as dt
-sys.path.insert(1, os.getcwd()[:os.getcwd().index('astropynaric')+13])
+# sys.path.insert(1, os.getcwd()[:os.getcwd().index('astropynaric')+13])
 ## Own imports
 import basic_tools.time_conversion as t_conv
 import attitude_tools.rotations as rot

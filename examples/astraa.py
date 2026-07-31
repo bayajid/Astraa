@@ -1,5 +1,25 @@
-import sys
+from pathlib import Path
 import os
+import sys
+
+prefix = sys.prefix
+
+os.environ["QT_PLUGIN_PATH"] = os.path.join(prefix, "plugins")
+os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(prefix, "plugins", "platforms")
+
+os.environ["QTWEBENGINEPROCESS_PATH"] = os.path.join(prefix, "libexec", "QtWebEngineProcess")
+
+os.environ["QTWEBENGINE_RESOURCES_PATH"] = os.path.join(prefix, "resources")
+os.environ["QTWEBENGINE_LOCALES_PATH"] = os.path.join(prefix, "translations")
+
+
+_EXAMPLES_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _EXAMPLES_DIR.parent
+for _path in (_REPO_ROOT, _EXAMPLES_DIR):
+    _path_str = str(_path)
+    if _path_str not in sys.path:
+        sys.path.insert(0, _path_str)
+
 #from turtle import position, width
 import numpy as np
 import pandas as pd
@@ -10,14 +30,13 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QC
                             QSpinBox, QDoubleSpinBox, QTabWidget, QGroupBox, QFormLayout, QDateEdit, QSplashScreen, QAction, QMessageBox, QFrame, QTextEdit)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize, QDate,QDateTime
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings, QWebEnginePage
-from PyQt5.QtWebEngine import QtWebEngine
+# from PyQt5.QtWebEngine import QtWebEngine
 
 import tempfile, os, webbrowser
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 from scipy.interpolate import CubicSpline
-from pathlib import Path
 from tqdm import tqdm
 from termcolor import colored
 from sgp4.api import Satrec, jday
@@ -25,18 +44,27 @@ from sgp4.api import Satrec, jday
 import json
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont
 # Load tudatpy modules
-from tudatpy.kernel.interface import spice
-# from tudatpy.data import save2txt
-from tudatpy.kernel import numerical_simulation
-from tudatpy.kernel.numerical_simulation import environment_setup
-from tudatpy.kernel.numerical_simulation import propagation_setup
-from tudatpy.kernel.astro import element_conversion
-# from tudatpy.kernel import constants
-from tudatpy.util import result2array
+# from tudatpy.kernel.interface import spice
+# # from tudatpy.data import save2txt
+# from tudatpy.kernel import dynamics
+# from tudatpy.kernel.dynamics import environment_setup
+# from tudatpy.kernel.dynamics import propagation_setup
+# from tudatpy.kernel.astro import element_conversion
+# # from tudatpy.kernel import constants
+# from tudatpy.util import result2array
+
+from tudatpy.kernel import dynamics
+from tudatpy.kernel.dynamics import environment_setup
+from tudatpy.kernel.dynamics import propagation_setup
 
 
-# Add parent directory to paths
-sys.path.insert(1, os.getcwd()[:os.getcwd().index('astropynaric')+13])
+
+import tudat_tools.simulation_utilities as util
+import tudat_tools.data_processing.data_processing_utilities as dputil
+import tudat_tools.tudat_converter as tudatconv
+import tudat_tools.data_processing.data_loading as load
+from tudat_tools.astro_simulations.astro_moon_rooftop_azel import ae_roof2sun
+
 
 # Import custom modules
 # import basic_tools.vector_operations as vec_calc
@@ -52,11 +80,7 @@ import basic_tools.in_out as io
 import pointing_calculations.ae_calculation as ae_calc
 import prediction_methods.interpolators as interp
 import prediction_methods.j2propagator as j2prop
-import tudat_tools.simulation_utilities as util
-import tudat_tools.data_processing.data_processing_utilities as dputil
-import tudat_tools.tudat_converter as tudatconv
-import tudat_tools.data_processing.data_loading as load
-from tudat_tools.astro_simulations.astro_moon_rooftop_azel import ae_roof2sun
+
 import attitude_tools.conversions as att_conv
 import analyses.attitude_predictions.attitude_prediction_utlities as att_pred
 
@@ -92,19 +116,20 @@ from scipy.spatial.transform import Rotation as R
 
 CET = ZoneInfo("Europe/Berlin") # timezone('Europe/Berlin')
 
-required_version = (3, 10, 17)
+_MIN_PYTHON = (3, 10)
+_MAX_PYTHON = (3, 13)
+current_version = sys.version_info[:3]
 
-# Check the current Python version
-current_version = sys.version_info[:3]  # Get major, minor, and micro parts of the version
-
-if current_version != required_version:    
-    print(colored(f"Python {required_version[0]}.{required_version[1]}.{required_version[2]} is required, ", 'red'))
-    print(colored(f"but you are using Python {current_version[0]}.{current_version[1]}.{current_version[2]}.", 'cyan'))
-    print(colored(f"Please switch to the required Python version and try again.\n", 'yellow'))
-    # sys.exit(1)
-
-else: 
-    print(colored("Python version check passed. You are using the correct version.", 'green'))
+if current_version < _MIN_PYTHON or current_version >= _MAX_PYTHON:
+    print(
+        colored(
+            f"Python {_MIN_PYTHON[0]}.{_MIN_PYTHON[1]}+ (below {_MAX_PYTHON[0]}.{_MAX_PYTHON[1]}) is required; "
+            f"you are using {current_version[0]}.{current_version[1]}.{current_version[2]}.",
+            "yellow",
+        )
+    )
+else:
+    print(colored("Python version check passed.", "green"))
 class DebugWebEnginePage(QWebEnginePage):
     """Custom QWebEnginePage to capture JavaScript console messages"""
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
@@ -117,12 +142,12 @@ class AstraaGUI(QMainWindow):
 
         ## Folder management
         ## Check if folders exist, if not create them
-        Path("examples/input_data").mkdir(parents=True, exist_ok=True)
-        Path("examples/output_data").mkdir(parents=True, exist_ok=True)
+        _EXAMPLES_DIR.joinpath("input_data").mkdir(parents=True, exist_ok=True)
+        _EXAMPLES_DIR.joinpath("output_data").mkdir(parents=True, exist_ok=True)
 
-        ## Set folder paths
-        self.datadir   = os.path.join(os.getcwd(),'examples','input_data')
-        self.outputdir = os.path.join(os.getcwd(),'examples','output_data')
+        ## Set folder paths (anchored to this script, not the process cwd)
+        self.datadir = str(_EXAMPLES_DIR / "input_data")
+        self.outputdir = str(_EXAMPLES_DIR / "output_data")
         
         if not os.path.exists(self.outputdir):
             os.makedirs(self.outputdir)
@@ -319,7 +344,7 @@ class AstraaGUI(QMainWindow):
         # Set custom page for console logging
         #self.orbit_plot.setPage(DebugWebEnginePage(self.orbit_plot))
         # Enable WebGL and related settings
-        QtWebEngine.initialize()  # Ensure WebEngine is initialized
+        # QtWebEngine.initialize()  # Ensure WebEngine is initialized
         settings = self.orbit_plot.settings()
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True) 
         settings.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled, False)  # Disable GPU canvas
@@ -3551,7 +3576,13 @@ class AstraaGUI(QMainWindow):
         )
         
         # Create simulation object and propagate dynamics
-        dynamics_simulator = numerical_simulation.SingleArcSimulator(
+        # dynamics_simulator = dynamics.SingleArcSimulator(
+        #     bodies, integrator_settings, propagator_settings,
+        #     print_dependent_variable_data=False,
+        #     print_state_data=False
+        # )
+        
+        dynamics_simulator =  dynamics.SingleArcSimulator(
             bodies, integrator_settings, propagator_settings,
             print_dependent_variable_data=False,
             print_state_data=False
@@ -6288,7 +6319,7 @@ class AstraaGUI(QMainWindow):
 
 
 def main(run_gui):
-    QtWebEngine.initialize()
+    # QtWebEngine.initialize()
 
     if run_gui:
         app = QApplication(sys.argv)
@@ -6327,8 +6358,12 @@ def main(run_gui):
 
 
 
+def run_app() -> None:
+    """Console entry point for the installed ``astraa`` command."""
+    main(run_gui=True)
+
+
 if __name__ == "__main__":
-    run_gui = 1
-    main(run_gui)
+    run_app()
 
 

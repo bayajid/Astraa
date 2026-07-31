@@ -4,18 +4,27 @@
 Astropynaric - Astrodynamic Intersatellite Link Analysis Tools 
 
 ## Installation
-To utilize reference frame conversion, conda and tudatpy are necessary.
-1) Install miniconda
-https://docs.conda.io/projects/conda/en/stable/user-guide/install/linux.html
-2) Setup conda environment via command line:
 
+ASTRAA depends on **tudatpy** and a full **PyQt5** stack; those are most reliable from **conda**. Pip covers the remaining Python packages.
+
+1. Install [Miniconda](https://docs.anaconda.com/miniconda/).
+2. Create and activate the environment:
+
+```bash
 conda env create -f environment.yaml
-
-conda activate data_streamer_tudatpy
-
+conda activate tudat
+conda install -c tudat-team -c conda-forge tudatpy pyqt pyqtwebengine cartopy
 pip install -r requirements.txt
+pip install -e .
+```
 
-3) To run, make sure data_streamer_tudatpy is the utilized Python environment
+3. Run the GUI (any of these):
+
+```bash
+astraa
+python -m examples
+python examples/astraa.py
+```
 
 ## Description
 The interfaces between astrodynamic simulations and link geometry.

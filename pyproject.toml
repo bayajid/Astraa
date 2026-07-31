@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astraa"
+version = "1.0.0"
+description = "ASTRAA — AstroPynaric Satellite Trajectory and Attitude Analysis"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "Proprietary" }
+authors = [{ name = "Mynaric" }]
+dependencies = [
+    "numpy<2.0.0",
+    "pandas",
+    "matplotlib",
+    "scipy",
+    "plotly",
+    "PyQt5",
+    "PyQtWebEngine",
+    "Pillow",
+    "sgp4",
+    "skyfield",
+    "astropy",
+    "cartopy",
+    "tqdm",
+    "termcolor",
+    "pytz",
+    "requests",
+]
+
+[project.scripts]
+astraa = "examples.astraa:run_app"
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "attitude_tools*",
+    "astronomy_tools*",
+    "basic_tools*",
+    "examples*",
+    "gs_sc_tools*",
+    "link_processing_tools*",
+    "paa_tools*",
+    "plotting_tools*",
+    "pointing_calculations*",
+    "prediction_methods*",
+    "tudat_tools*",
+    "analyses*",
+]
+exclude = [
+    "unit_tests*",
+    "matlab_tools*",
+    "astraa_pkg*",
+]
+
+[tool.setuptools.package-data]
+examples = ["*.png", "input_data/*", "output_data/*"]
