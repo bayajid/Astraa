@@ -1,1 +1,53 @@
-
+{
+    "name": "pointing_error",
+    "t_start": 815718071.7187741,
+    "t_end": 815804471.7187741,
+    "generation_date": "2025-11-06 16:20:57.822177",
+    "accelerations_setting": "Earth, SH 32x32, PMG:  Moo, Sun",
+    "integrator": "rk4",
+    "time_step": 1,
+    "constellation": {},
+    "total_sats": 6,
+    "simulation_run_time": 0.0,
+    "n_function_evaluations": 86400,
+    "sat_names": [
+        "leo_polar_1",
+        "leo_polar_2",
+        "leo_polar_3_raan",
+        "leo_eq",
+        "leo_incl",
+        "meo_eq"
+    ],
+    "r_index": {
+        "leo_polar_1": [
+            1,
+            2,
+            3
+        ],
+        "leo_polar_2": [
+            7,
+            8,
+            9
+        ],
+        "leo_polar_3_raan": [
+            13,
+            14,
+            15
+        ],
+        "leo_eq": [
+            19,
+            20,
+            21
+        ],
+        "leo_incl": [
+            25,
+            26,
+            27
+        ],
+        "meo_eq": [
+            31,
+            32,
+            33
+        ]
+    }
+}
