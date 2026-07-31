@@ -1,0 +1,41 @@
+{
+    "name": "leo_polar_meo_eq",
+    "t_start": 811226374.929667,
+    "t_end": 811312774.929667,
+    "generation_date": "2025-09-15 16:38:12.746166",
+    "accelerations_setting": "Earth, SH 64x64, PMG:  Moo, Sun",
+    "integrator": "rk4",
+    "time_step": 1,
+    "constellation": {},
+    "total_sats": 4,
+    "simulation_run_time": 154.440654,
+    "n_function_evaluations": 811312774,
+    "sat_names": [
+        "leo_polar_1",
+        "leo_polar_2",
+        "leo_eq",
+        "meo_eq"
+    ],
+    "r_index": {
+        "leo_polar_1": [
+            1,
+            2,
+            3
+        ],
+        "leo_polar_2": [
+            7,
+            8,
+            9
+        ],
+        "leo_eq": [
+            13,
+            14,
+            15
+        ],
+        "meo_eq": [
+            19,
+            20,
+            21
+        ]
+    }
+}
