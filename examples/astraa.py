@@ -2123,89 +2123,77 @@ class AstraaGUI(QMainWindow):
 
         # # ---- Animation (unchanged) ----
         from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-        RPY=np.array([roll,pitch,yaw])
+        
+        
+        def prep_quat(q):
+            q = np.atleast_2d(np.asarray(q, dtype=float))[:, :4]
+            n = np.linalg.norm(q, axis=1, keepdims=True)
+            return np.divide(q, n, out=np.zeros_like(q), where=n > 1e-12)
 
-        q0=R.from_euler('xyz',RPY,degrees=True).as_quat()[[3,0,1,2]].reshape(1,4)
-        qt=np.asarray(q_true,dtype=float)
-        qt=np.atleast_2d(qt)[:,:4]
-        norms=np.linalg.norm(qt,axis=1,keepdims=True)
-        qt=np.divide(qt,norms,out=np.zeros_like(qt),where=norms>1e-12)
-        q_full=np.vstack([q0,qt])
+        qt = prep_quat(selected_result["q_true"])
+        qp = prep_quat(selected_result["q_pred"])
+        N = min(len(qt), len(qp))
+        qt, qp = qt[:N], qp[:N]
 
-        verts=np.array([
+        # --- speed control: downsample frames so playback isn't glacial for large N ---
+        target_frames   = 500                      # tune to taste
+        intervals       = 0.5
+        stride = max(1, N // target_frames)
+        frame_idx = np.arange(0, N, stride)
+
+        verts = np.array([
             [-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
-            [-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]
-        ],dtype=float)
+            [-1,-1, 1],[1,-1, 1],[1,1, 1],[-1,1, 1]
+        ], dtype=float)
+        faces = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[1,2,6,5],[0,3,7,4]]
 
-        faces=[
-            [0,1,2,3],[4,5,6,7],
-            [0,1,5,4],[2,3,7,6],
-            [1,2,6,5],[0,3,7,4]
-        ]
-
-        fig=plt.figure(figsize=(6,6))
-        ax=fig.add_subplot(111,projection='3d')
+        fig = plt.figure(figsize=(8, 7))
+        ax = fig.add_subplot(111, projection='3d')
         ax.set_box_aspect([1,1,1])
-        rng=1.6
-        ax.set_xlim(-rng,rng)
-        ax.set_ylim(-rng,rng)
-        ax.set_zlim(-rng,rng)
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.view_init(elev=20,azim=30)
+        rng = 2.2
+        ax.set_xlim(-rng, rng); ax.set_ylim(-rng, rng); ax.set_zlim(-rng, rng)
+        ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
+        ax.view_init(elev=22, azim=35)
+        ax.set_title('True (blue)  vs  Predicted (orange)', pad=12)
 
-        poly=Poly3DCollection([],facecolors='skyblue',edgecolors='k',alpha=0.9)
-        ax.add_collection3d(poly)
+        poly_t = Poly3DCollection([verts[f] for f in faces], facecolors='skyblue', edgecolors='k', alpha=0.55, linewidths=0.8)
+        poly_p = Poly3DCollection([verts[f] for f in faces], facecolors='salmon', edgecolors='darkred', alpha=0.45, linewidths=0.8)
+        ax.add_collection3d(poly_t)
+        ax.add_collection3d(poly_p)
 
-        axis_len=1.2
-        axis_lines=[ax.plot([0,0],[0,0],[0,0],c=c,lw=2)[0] for c in ['r','g','b']]
+        axis_len = 1.5
+        axis_t = [ax.plot([0,0],[0,0],[0,0], c=c, lw=2.5)[0] for c in ['r','g','b']]
+        axis_p = [ax.plot([0,0],[0,0],[0,0], c=c, lw=1.8, ls='--')[0] for c in ['r','g','b']]
 
-        normal_len=0.4
-        face_lines=[ax.plot([0,0],[0,0],[0,0],c='orange',lw=1)[0] for _ in faces]
+        def update(i):
+            frame = frame_idx[i]
 
-        def update(frame):
-            q=q_full[frame]
-            Rmat=R.from_quat(q[[1,2,3,0]]).as_matrix()
-            rotated=verts@Rmat.T
-            poly.set_verts([[rotated[i] for i in face] for face in faces])
+            Rt = R.from_quat(qt[frame][[1,2,3,0]]).as_matrix()   # [w,x,y,z] -> scipy [x,y,z,w]
+            rot_t = verts @ Rt.T
+            poly_t.set_verts([rot_t[f] for f in faces])          # <-- update in place, no re-creation
+            tips_t = Rt.T * axis_len
+            for k, ln in enumerate(axis_t):
+                ln.set_data([0, tips_t[0,k]], [0, tips_t[1,k]])
+                ln.set_3d_properties([0, tips_t[2,k]])
 
-            tips=np.eye(3)@Rmat.T*axis_len
-            for i,ln in enumerate(axis_lines):
-                ln.set_data([0,tips[i,0]],[0,tips[i,1]])
-                ln.set_3d_properties([0,tips[i,2]])
+            Rp = R.from_quat(qp[frame][[1,2,3,0]]).as_matrix()
+            rot_p = verts @ Rp.T
+            poly_p.set_verts([rot_p[f] for f in faces])
+            tips_p = Rp.T * axis_len
+            for k, ln in enumerate(axis_p):
+                ln.set_data([0, tips_p[0,k]], [0, tips_p[1,k]])
+                ln.set_3d_properties([0, tips_p[2,k]])
 
-            for i,face in enumerate(faces):
-                pts=rotated[face]
-                centre=pts.mean(axis=0)
-                n=np.cross(pts[1]-pts[0],pts[2]-pts[0])
-                n_norm=np.linalg.norm(n)
-                if n_norm>1e-12:
-                    n/=n_norm
-                tip=centre+n*normal_len
-                face_lines[i].set_data([centre[0],tip[0]],[centre[1],tip[1]])
-                face_lines[i].set_3d_properties([centre[2],tip[2]])
+            return (poly_t, poly_p, *axis_t, *axis_p)
 
-            return (poly,*axis_lines,*face_lines)
-
-        try:
-            speed_mult=int(self.update_rate.currentData() or 50)
-        except Exception:
-            speed_mult=50
-
-        data_dt=0.1
-        interval_ms=max(10,int(1000*data_dt/speed_mult))
-
-        anim=FuncAnimation(
-            fig,update,frames=len(q_full),
-            interval=interval_ms,blit=False,repeat=True,
-            cache_frame_data=False
-        )
-
-        self._pe_anim=anim
-        update(0)
-        plt.show(block=False)
-        return anim, selected_result
+        anim = FuncAnimation(
+            fig, update, frames=len(frame_idx),
+            interval=intervals, blit=False, repeat=True, cache_frame_data=False
+        )       
+        self._pe_anim = anim
+        plt.tight_layout()
+        plt.show()
+        return selected_result
         # try:
         #     speed_mult=int(self.update_rate.currentData() or 1)
         # except Exception:
