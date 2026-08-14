@@ -1,25 +1,5 @@
-from pathlib import Path
-import os
 import sys
-
-prefix = sys.prefix
-
-os.environ["QT_PLUGIN_PATH"] = os.path.join(prefix, "plugins")
-os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(prefix, "plugins", "platforms")
-
-os.environ["QTWEBENGINEPROCESS_PATH"] = os.path.join(prefix, "libexec", "QtWebEngineProcess")
-
-os.environ["QTWEBENGINE_RESOURCES_PATH"] = os.path.join(prefix, "resources")
-os.environ["QTWEBENGINE_LOCALES_PATH"] = os.path.join(prefix, "translations")
-
-
-_EXAMPLES_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _EXAMPLES_DIR.parent
-for _path in (_REPO_ROOT, _EXAMPLES_DIR):
-    _path_str = str(_path)
-    if _path_str not in sys.path:
-        sys.path.insert(0, _path_str)
-
+import os
 #from turtle import position, width
 import numpy as np
 import pandas as pd
@@ -30,13 +10,14 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QC
                             QSpinBox, QDoubleSpinBox, QTabWidget, QGroupBox, QFormLayout, QDateEdit, QSplashScreen, QAction, QMessageBox, QFrame, QTextEdit)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize, QDate,QDateTime
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings, QWebEnginePage
-# from PyQt5.QtWebEngine import QtWebEngine
+from PyQt5.QtWebEngine import QtWebEngine
 
 import tempfile, os, webbrowser
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 from scipy.interpolate import CubicSpline
+from pathlib import Path
 from tqdm import tqdm
 from termcolor import colored
 from sgp4.api import Satrec, jday
@@ -44,27 +25,18 @@ from sgp4.api import Satrec, jday
 import json
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont
 # Load tudatpy modules
-# from tudatpy.kernel.interface import spice
-# # from tudatpy.data import save2txt
-# from tudatpy.kernel import dynamics
-# from tudatpy.kernel.dynamics import environment_setup
-# from tudatpy.kernel.dynamics import propagation_setup
-# from tudatpy.kernel.astro import element_conversion
-# # from tudatpy.kernel import constants
-# from tudatpy.util import result2array
-
-from tudatpy.kernel import dynamics
-from tudatpy.kernel.dynamics import environment_setup
-from tudatpy.kernel.dynamics import propagation_setup
+from tudatpy.kernel.interface import spice
+from tudatpy.data import save2txt
+from tudatpy.kernel import numerical_simulation
+from tudatpy.kernel.numerical_simulation import environment_setup
+from tudatpy.kernel.numerical_simulation import propagation_setup
+from tudatpy.kernel.astro import element_conversion
+from tudatpy.kernel import constants
+from tudatpy.util import result2array
 
 
-
-import tudat_tools.simulation_utilities as util
-import tudat_tools.data_processing.data_processing_utilities as dputil
-import tudat_tools.tudat_converter as tudatconv
-import tudat_tools.data_processing.data_loading as load
-from tudat_tools.astro_simulations.astro_moon_rooftop_azel import ae_roof2sun
-
+# Add parent directory to paths
+sys.path.insert(1, os.getcwd()[:os.getcwd().index('astropynaric')+13])
 
 # Import custom modules
 # import basic_tools.vector_operations as vec_calc
@@ -80,7 +52,11 @@ import basic_tools.in_out as io
 import pointing_calculations.ae_calculation as ae_calc
 import prediction_methods.interpolators as interp
 import prediction_methods.j2propagator as j2prop
-
+import tudat_tools.simulation_utilities as util
+import tudat_tools.data_processing.data_processing_utilities as dputil
+import tudat_tools.tudat_converter as tudatconv
+import tudat_tools.data_processing.data_loading as load
+from tudat_tools.astro_simulations.astro_moon_rooftop_azel import ae_roof2sun
 import attitude_tools.conversions as att_conv
 import analyses.attitude_predictions.attitude_prediction_utlities as att_pred
 
@@ -93,8 +69,7 @@ from tle_to_j2000 import propagate_and_rotate_tle
 import quaternion_slerp_squad as quat_slerp
 
 # New MEKF approach imports
-from MEKF import MEKFComparator
-import time
+# import MEKF as mekf
 
 
 # New imports for Moon Phase calculation
@@ -116,20 +91,19 @@ from scipy.spatial.transform import Rotation as R
 
 CET = ZoneInfo("Europe/Berlin") # timezone('Europe/Berlin')
 
-_MIN_PYTHON = (3, 10)
-_MAX_PYTHON = (3, 13)
-current_version = sys.version_info[:3]
+required_version = (3, 10, 17)
 
-if current_version < _MIN_PYTHON or current_version >= _MAX_PYTHON:
-    print(
-        colored(
-            f"Python {_MIN_PYTHON[0]}.{_MIN_PYTHON[1]}+ (below {_MAX_PYTHON[0]}.{_MAX_PYTHON[1]}) is required; "
-            f"you are using {current_version[0]}.{current_version[1]}.{current_version[2]}.",
-            "yellow",
-        )
-    )
-else:
-    print(colored("Python version check passed.", "green"))
+# Check the current Python version
+current_version = sys.version_info[:3]  # Get major, minor, and micro parts of the version
+
+if current_version != required_version:    
+    print(colored(f"Python {required_version[0]}.{required_version[1]}.{required_version[2]} is required, ", 'red'))
+    print(colored(f"but you are using Python {current_version[0]}.{current_version[1]}.{current_version[2]}.", 'cyan'))
+    print(colored(f"Please switch to the required Python version and try again.\n", 'yellow'))
+    # sys.exit(1)
+
+else: 
+    print(colored("Python version check passed. You are using the correct version.", 'green'))
 class DebugWebEnginePage(QWebEnginePage):
     """Custom QWebEnginePage to capture JavaScript console messages"""
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
@@ -142,12 +116,12 @@ class AstraaGUI(QMainWindow):
 
         ## Folder management
         ## Check if folders exist, if not create them
-        _EXAMPLES_DIR.joinpath("input_data").mkdir(parents=True, exist_ok=True)
-        _EXAMPLES_DIR.joinpath("output_data").mkdir(parents=True, exist_ok=True)
+        Path("examples/input_data").mkdir(parents=True, exist_ok=True)
+        Path("examples/output_data").mkdir(parents=True, exist_ok=True)
 
-        ## Set folder paths (anchored to this script, not the process cwd)
-        self.datadir = str(_EXAMPLES_DIR / "input_data")
-        self.outputdir = str(_EXAMPLES_DIR / "output_data")
+        ## Set folder paths
+        self.datadir   = os.path.join(os.getcwd(),'examples','input_data')
+        self.outputdir = os.path.join(os.getcwd(),'examples','output_data')
         
         if not os.path.exists(self.outputdir):
             os.makedirs(self.outputdir)
@@ -344,7 +318,7 @@ class AstraaGUI(QMainWindow):
         # Set custom page for console logging
         #self.orbit_plot.setPage(DebugWebEnginePage(self.orbit_plot))
         # Enable WebGL and related settings
-        # QtWebEngine.initialize()  # Ensure WebEngine is initialized
+        QtWebEngine.initialize()  # Ensure WebEngine is initialized
         settings = self.orbit_plot.settings()
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True) 
         settings.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled, False)  # Disable GPU canvas
@@ -463,25 +437,13 @@ class AstraaGUI(QMainWindow):
 
         # Create Integrator dropdown
         quaternion_integrator= QComboBox()
-        quaternion_integrator.addItems(['RK4', 'Rapid 4th-Order'])#(["SLERP","MOD-CUBIC-SPLINE","CUBIC-SPLINE"])
+        quaternion_integrator.addItems(['RK4', 'Rapid 4th-Order'])
         integration_label = QLabel("Integrator:")
         checkbox_layout.addWidget(integration_label)
         checkbox_layout.addWidget(quaternion_integrator)
     
         self.active_integrator = quaternion_integrator.currentText()     
         quaternion_integrator.currentTextChanged.connect(self.update_quaternion_integrator)
-        
-        # quaternion_integrator.currentTextChanged.connect(
-        #     lambda text: setattr(self, 'Active_integrator', text)
-        # )
-        
-        #print(f"Active quaternion interpolator: {self.active_integrator}")
-
-
-        # Connect checkbox signal
-        # self.jerk_flag = False
-        # jerk_checkbox.stateChanged.connect(lambda state: print(f"Jerk Flag = {setattr(self, 'jerk_flag', state == 2) or self.jerk_flag}"))
-        # checkbox_layout.addWidget(jerk_checkbox)
 
         # Add the button layout to the form
         control_layout.addRow(checkbox_layout)
@@ -507,7 +469,7 @@ class AstraaGUI(QMainWindow):
 
         # Create Interpolator dropdown
         quaternion_interpolator= QComboBox()
-        quaternion_interpolator.addItems(["SLERP","MOD-CUBIC-SPLINE","CUBIC-SPLINE"])
+        quaternion_interpolator.addItems(["SLERP","CUBIC-SPLINE","HERMITE","SQUAD","AOCS-EXPONENTIAL","AOCS-TAYLOR","QUADRATIC"])
         interpolation_label = QLabel("Interpolator:")
         PE_checkbox.addWidget(interpolation_label)
         PE_checkbox.addWidget(quaternion_interpolator)
@@ -532,10 +494,10 @@ class AstraaGUI(QMainWindow):
         pe_layout.addRow("Latency:", self.latency)
 
         calculate_button = QPushButton("Calculate PE")
-        if self.active_interpolator == "CUBIC-SPLINE":
-            calculate_button.clicked.connect(lambda:self.calculate_pe(self.active_interpolator))
-        else:
-            calculate_button.clicked.connect(lambda:self.calculate_pe_new(self.active_interpolator))
+        # if self.active_interpolator == "CUBIC-SPLINE_OLD":
+        #     calculate_button.clicked.connect(lambda:self.calculate_pe(self.active_interpolator))
+        # else:
+        calculate_button.clicked.connect(lambda:self.calculate_pe_new(self.active_interpolator))
         pe_layout.addRow(calculate_button)
 
         # Add Plot button
@@ -1458,7 +1420,7 @@ class AstraaGUI(QMainWindow):
         self.moon_plot_widget.settings().setAttribute(QWebEngineSettings.WebGLEnabled, True)
         self.moon_plot_widget.settings().setAttribute(QWebEngineSettings.JavascriptEnabled, True)
         graphics_layout.addWidget(self.moon_plot_widget)
-        
+    
     def save_geo_location(self):
         text = self.geo_line_edit.text().strip()
         try:
@@ -1760,321 +1722,6 @@ class AstraaGUI(QMainWindow):
         except Exception as e:
             print(f"[ERROR] Could not access .glb file at {glb_url}: {e}")
             print("If the satellite model is not visible, check the server path and permissions.")
-
-    def calculate_pe(self, active_interpolator, respect_update_rate: bool = False):
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-        from matplotlib.animation import FuncAnimation
-        import quaternion_slerp_squad as quat_squad
-
-        
-        """Calculate pointing error for all update_rate/latency combos, plot only selected, save all CSVs.
-        Default behavior (respect_update_rate=False) preserves original dense 5 ms outputs.
-        If respect_update_rate=True, the function also generates per-update-rate evaluation CSVs
-        with filenames suffixed by '_respectrate.csv'.
-        """
-        active_interpolator  = self.active_interpolator
-        print(f"Interpolation method:{active_interpolator}")
-        if not self.attitude_data:
-            return
-        
-        if self.rsepect_rate_flag:
-            respect_update_rate = True
-
-        selected_update_rate = int(self.update_rate.currentData())
-        selected_latency = int(self.latency.currentData())
-        update_rates = [1, 2, 5, 10]
-        latencies = [0, 1, 2, 3, 4]
-        selected_result = None
-        selected_swapped_result = None
-
-        # Get attitude profile info for filename
-        settings_name = self.settings_combo.currentText()
-        roll = float(self.roll.value())
-        pitch = float(self.pitch.value())
-        yaw = float(self.yaw.value())
-
-        dt_req = 5e-3  # 5 ms (original dense sampling)
-        n_digits = 3
-        propagators_enabled = 1
-
-        # Common preprocessing (do once)
-        t_vec = np.round(self.attitude_data['time'], n_digits)
-        q_true = np.column_stack((self.attitude_data['quaternions'], self.attitude_data['quaternion_rates']))
-        t_req = np.round(np.arange(t_vec[0], t_vec[-1] + dt_req, dt_req), n_digits)
-        t_gps_interp = CubicSpline(t_vec, t_vec, axis=0)
-        q_host_interp = CubicSpline(t_vec, q_true, axis=0)
-        #q_host_interp = quat_squad.make_cubic_spline_interpolator(t_vec, self.attitude_data['quaternions'], self.attitude_data['quaternion_rates'])
-         
-
-        def process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=False):
-            """
-            Internal worker that produces one set of CSVs for either:
-                do_respect_rate == False -> dense 5 ms sampling
-                do_respect_rate == True  -> sampling at 1/update_rate
-            Returns result_for_selected (for plotting) if the processed combo matches selected UI combo.
-            """
-            result_for_selected = None
-            if self.rsepect_rate_flag:
-                do_respect_rate = True
-
-            for update_rate in update_rates:
-                for latency in latencies:
-                    # decide timestep for evaluation
-                    dt_eval = (1.0 / update_rate) if do_respect_rate else dt_req
-                    t_eval = np.round(np.arange(t_vec[0], t_vec[-1] + dt_eval, dt_eval), n_digits)
-
-                    # file & folder
-                    output_dir = os.path.join(self.outputdir, 'tables', f'{settings_name}_quatpred')
-                    os.makedirs(output_dir, exist_ok=True)
-
-                    suffix = '_respectrate' if do_respect_rate else ''
-                    filename_prefix = 'swapped_true_quat' if apply_sign_swap else 'true_quat'
-                    output_file = os.path.join(
-                        output_dir,
-                        f'{filename_prefix}{settings_name}_roll{roll}_pitch{pitch}_yaw{yaw}_{update_rate}Hz_{latency}s_{active_interpolator}{suffix}.csv'
-                    )
-
-                    if os.path.exists(output_file):
-                        print(f'File exists: {output_file}')
-                        if update_rate == selected_update_rate and latency == selected_latency:
-                            result_for_selected = self._load_pe_csv(output_file)
-                        continue
-
-                    # timing + latency
-                    dt_gap_att_h = np.round(1 / update_rate, 3)
-                    dt_latency = dt_gap_att_h * latency
-                    t_update_arrival = np.round(np.arange(t_vec[0], t_vec[-1] + dt_gap_att_h, dt_gap_att_h), 3)
-
-                    # evaluate ground truth / predicted times at t_eval
-                    t_gps_interp_eval = t_gps_interp(t_eval)
-                    q_host_true_eval = q_host_interp(t_eval)
-
-                    t_gps_pred_eval = np.zeros_like(t_gps_interp_eval)
-                    q_host_pred_eval = np.zeros_like(q_host_true_eval)
-                    t_stamps_updates = t_update_arrival - dt_latency
-
-                    # optional quaternion sign swap (keeps original logic)
-                    if apply_sign_swap:
-                        index = np.where(t_gps_interp_eval == 10)[0]
-                        if len(index) > 0:
-                            q_host_true_eval[index[0]:] = -q_host_true_eval[index[0]:]
-
-                    # data used for held/propagated attitude
-                    data_full_att_h = q_host_interp(t_stamps_updates)
-                    ii_next_att_h = 0
-                    quat_interp = interp.we_interpolating()
-
-                    # iterate through evaluation times and compute predicted quat
-                    for ii, t_ii in enumerate(t_gps_interp_eval):
-                        # advance held index if this eval time reached the next update arrival
-                        if ii_next_att_h < len(t_update_arrival) and t_ii >= t_update_arrival[ii_next_att_h] and t_ii < t_update_arrival[-1]:
-                            data_att_h = data_full_att_h[ii_next_att_h]
-                            data_att_h_held = data_att_h  # for propagator off
-                            if ii_next_att_h >= 1:
-                                try:
-                                    quat_interp.get_quad_interpolant(
-                                        t_both=t_stamps_updates[ii_next_att_h-1:ii_next_att_h+1],
-                                        r_both=data_full_att_h[ii_next_att_h-1:ii_next_att_h+1, :4],
-                                        v_both=(data_full_att_h[ii_next_att_h-1:ii_next_att_h+1, 4:]
-                                                if data_full_att_h.shape[1] > 4 else np.zeros((2, 4))),
-                                    )
-                                except Exception as e:
-                                    print(f"Interpolation error: {e}")
-                            ii_next_att_h += 1
-
-                        if ii_next_att_h >= 2:
-                            if propagators_enabled:
-                                data_att_interp = quat_interp.interpolate_flexible(t_ii)
-                            else:
-                                data_att_interp = data_att_h_held[:4]
-                        else:
-                            data_att_interp = [0, 0, 0, 0]
-
-                        q_host_pred_eval[ii, :4] = data_att_interp
-                        t_gps_pred_eval[ii] = t_ii
-
-                    # compute pointing error using existing att_pred helper
-                    pe_remaining = [
-                        att_pred.eval_pred_error(q_pred_ii, q_true_ii)[1]
-                        for q_pred_ii, q_true_ii in zip(q_host_true_eval[:, :4], q_host_pred_eval[:, :4])
-                    ]
-                    pe_remaining = np.array(pe_remaining)
-
-                    # save dataframe
-                    # note: maintain same columns as original code
-                    df_dict = {
-                        'time': t_gps_interp_eval,
-                        'pe': pe_remaining,
-                        'q_true_w': q_host_true_eval[:, 0],
-                        'q_true_x': q_host_true_eval[:, 1],
-                        'q_true_y': q_host_true_eval[:, 2],
-                        'q_true_z': q_host_true_eval[:, 3],
-                        'q_true_w_dot': q_host_true_eval[:, 4],
-                        'q_true_x_dot': q_host_true_eval[:, 5],
-                        'q_true_y_dot': q_host_true_eval[:, 6],
-                        'q_true_z_dot': q_host_true_eval[:, 7],
-                        'q_pred_w': q_host_pred_eval[:, 0],
-                        'q_pred_x': q_host_pred_eval[:, 1],
-                        'q_pred_y': q_host_pred_eval[:, 2],
-                        'q_pred_z': q_host_pred_eval[:, 3],
-                    }
-                    pd.DataFrame(df_dict).to_csv(output_file, index=False)
-                    swap_msg = 'swapped quaternions ' if apply_sign_swap else ''
-                    mode_msg = ' (respect update rate)' if do_respect_rate else ''
-                    print(f'Saved {swap_msg}{output_file}{mode_msg}')
-
-                    # if this is the UI-selected combo, capture for visualization
-                    if update_rate == selected_update_rate and latency == selected_latency:
-                        result_for_selected = {
-                            'time': t_gps_interp_eval,
-                            'pe': pe_remaining,
-                            'q_true': q_host_true_eval,
-                            'q_pred': q_host_pred_eval,
-                            't_from_0': t_gps_interp_eval - t_gps_interp_eval[0],
-                            #'t_stamps_updates': t_stamps_updates,
-                            'data_full_att_h': data_full_att_h
-                        }
-
-            return result_for_selected
-
-        # ---- Generate datasets ----
-        # Always produce the original dense 5 ms CSVs (preserves previous behavior)
-        selected_result = process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=False)
-
-        # If user asked to respect update rate, also produce the per-update-rate CSVs (suffix _respectrate)
-        if respect_update_rate:
-            # produce the "respect rate" versions in addition to original
-            process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=True)
-
-        # handle sign-swap variants the same way
-        if self.sign_swap_flag:
-            selected_swapped_result = process_quaternion_prediction(apply_sign_swap=True, do_respect_rate=False)
-            if respect_update_rate:
-                process_quaternion_prediction(apply_sign_swap=True, do_respect_rate=True)
-
-        # ---- Visualization: keep original behavior unchanged ----
-        if selected_result is not None:
-            self.pe_data = selected_result
-            if self.sign_swap_flag and selected_swapped_result is not None:
-                self.pe_data_swapped = selected_swapped_result
-            self.update_pe_visualization()
-            pe_tab_index = self.graphics_tabs.indexOf(self.pe_graphics)
-            if pe_tab_index != -1:
-                self.graphics_tabs.setCurrentIndex(pe_tab_index)
-
-        # ---- Vector rotation + PE plotting ----
-        unit_vector = np.array([1, 0, 0])
-        time_pe = self.pe_data['time']
-        q_true = self.pe_data['q_true']
-        q_pred = self.pe_data['q_pred']
-        rotated_vectors_true = np.array([rot.rotate_with_quat(unit_vector, q) for q in q_true])
-        rotated_vectors_pred = np.array([rot.rotate_with_quat(unit_vector, q) for q in q_pred])
-
-        dot_products = np.einsum('ij,ij->i', rotated_vectors_true, rotated_vectors_pred)
-        norm_true = np.linalg.norm(rotated_vectors_true, axis=1)
-        norm_pred = np.linalg.norm(rotated_vectors_pred, axis=1)
-        zero_mask = (norm_true == 0) | (norm_pred == 0)
-        norm_true_safe = norm_true.copy(); norm_pred_safe = norm_pred.copy()
-        norm_true_safe[zero_mask] = 1.0; norm_pred_safe[zero_mask] = 1.0
-        cos_angles = np.clip(dot_products / (norm_true_safe * norm_pred_safe), -1.0, 1.0)
-        angle = 1e6 * np.arccos(cos_angles)
-        angle[zero_mask] = 0.0
-        plt.plot(time_pe, angle)
-        plt.xlabel('time')
-        plt.ylabel('PE [µrad]')
-        plt.grid()
-        plt.show()
-
-        # ---- Animation (unchanged) ----
-        RPY = np.array([roll, pitch, yaw])
-        q0 = att_conv.convert_ea2quat(RPY)
-        if isinstance(q_true, np.ndarray) and q_true.ndim == 2 and q_true.shape[1] >= 4:
-            qseq = q_true[:, :4]
-        else:
-            qseq = np.atleast_2d(q_true)[:, :4]
-        q_full = np.vstack([q0, qseq])
-
-        verts = np.array([[-1, -1, -1],
-                        [ 1, -1, -1],
-                        [ 1,  1, -1],
-                        [-1,  1, -1],
-                        [-1, -1,  1],
-                        [ 1, -1,  1],
-                        [ 1,  1,  1],
-                        [-1,  1,  1]], dtype=float)
-        faces = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[1,2,6,5],[0,3,7,4]]
-
-        fig = plt.figure(figsize=(6,6))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_box_aspect([1,1,1])
-        rng = 1.6
-        ax.set_xlim(-rng, rng); ax.set_ylim(-rng, rng); ax.set_zlim(-rng, rng)
-        ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
-
-        poly = Poly3DCollection([], facecolors='skyblue', edgecolors='k', alpha=0.9)
-        ax.add_collection3d(poly)
-        ax.view_init(elev=20, azim=30)
-
-        axis_colors = ['r', 'g', 'b']
-        axis_lines = []
-        axis_length = 1.2
-        for c in axis_colors:
-            ln, = ax.plot([0, 0], [0, 0], [0, 0], color=c, linewidth=2)
-            axis_lines.append(ln)
-
-        face_lines = []
-        normal_length = 0.4
-        for _ in faces:
-            ln, = ax.plot([0, 0], [0, 0], [0, 0], color='orange', linewidth=1)
-            face_lines.append(ln)
-
-        def update(frame):
-            q = q_full[frame]
-            norm = np.linalg.norm(q)
-            R = np.eye(3) if norm == 0 else att_conv.convert_quat2dcm(q / norm)
-            rotated = verts @ R.T
-            face_verts = [[rotated[idx] for idx in face] for face in faces]
-            poly.set_verts(face_verts)
-
-            body_axes = np.array([[1.0, 0.0, 0.0],
-                                [0.0, 1.0, 0.0],
-                                [0.0, 0.0, 1.0]])
-            tips = (body_axes @ R.T) * axis_length
-            for i, ln in enumerate(axis_lines):
-                x = [0.0, tips[i, 0]]
-                y = [0.0, tips[i, 1]]
-                z = [0.0, tips[i, 2]]
-                ln.set_data(x, y)
-                ln.set_3d_properties(z)
-
-            for idx, face in enumerate(faces):
-                face_pts = rotated[face]
-                center = np.mean(face_pts, axis=0)
-                v0 = face_pts[1] - face_pts[0]
-                v1 = face_pts[2] - face_pts[0]
-                n = np.cross(v0, v1)
-                n_norm = np.linalg.norm(n)
-                if n_norm > 0: n /= n_norm
-                tip = center + n * normal_length
-                ln = face_lines[idx]
-                ln.set_data([center[0], tip[0]], [center[1], tip[1]])
-                ln.set_3d_properties([center[2], tip[2]])
-
-            return tuple([poly] + axis_lines + face_lines)
-
-        try:
-            speed_mult = int(self.update_rate.currentData() or 1)
-        except Exception:
-            speed_mult = 1
-        base_interval = 5
-        interval_ms = max(1, int(base_interval / float(speed_mult)))
-        ani = FuncAnimation(fig, update, frames=len(q_full), interval=interval_ms, blit=False, repeat=True)
-        self._pe_anim = ani
-        try:
-            plt.show(block=False)
-        except TypeError:
-            plt.show()
-        return ani
     
     def quat_to_matrix(self, q):
         return R.from_quat([q[1], q[2], q[3], q[0]]).as_matrix()
@@ -2084,276 +1731,341 @@ class AstraaGUI(QMainWindow):
         T[:3,:3] = Rmat
         T[:3,3] = translation
         return T
-    
-    def calculate_pe_new(self, active_interpolator, respect_update_rate: bool = False):
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-        from matplotlib.animation import FuncAnimation
+   
+    def calculate_pe_new(self, active_interpolator, respect_update_rate: bool = False):        
         import quaternion_slerp_squad as quat_squad
+        from matplotlib.animation import FuncAnimation        
 
-        
-        """Calculate pointing error for all update_rate/latency combos, plot only selected, save all CSVs.
-        Default behavior (respect_update_rate=False) preserves original dense 5 ms outputs.
-        If respect_update_rate=True, the function also generates per-update-rate evaluation CSVs
-        with filenames suffixed by '_respectrate.csv'.
-        """
-        print("*"*80)
+        print("*" * 80)
         print("Calculate pointing error for all update_rate/latency")
-        print("*"*80)
-        active_interpolator  = self.active_interpolator
-        print(f"Interpolation method:{active_interpolator}")
+        print("*" * 80)
+
         if not self.attitude_data:
             return
-        
+
         if self.rsepect_rate_flag:
             respect_update_rate = True
 
+        # ------------------------------------------------------------
+        # IMPORTANT:
+        # Use the argument passed to the function.
+        # Do NOT overwrite it with self.active_interpolator.
+        # ------------------------------------------------------------
+        print(f"Interpolation method: {active_interpolator}")
+
         selected_update_rate = int(self.update_rate.currentData())
         selected_latency = int(self.latency.currentData())
+
         update_rates = [1, 2, 5, 10]
         latencies = [0, 1, 2, 3, 4]
-        selected_result = None
-        selected_swapped_result = None
 
-        # Get attitude profile info for filename
+        # ------------------------------------------------------------
+        # Settings
+        # ------------------------------------------------------------
         settings_name = self.settings_combo.currentText()
         roll = float(self.roll.value())
         pitch = float(self.pitch.value())
         yaw = float(self.yaw.value())
 
-        dt_req = 5e-3  # 5 ms (original dense sampling)
-        n_digits = 3
-        propagators_enabled = 1
+        dt_req = 5e-3
 
-        # True Data as generatd by astraa
-        q_true      = self.attitude_data['quaternions']
-        qdot_true   = self.attitude_data['quaternion_rates']
+        # ------------------------------------------------------------
+        # TRUE DATA
+        # ------------------------------------------------------------
+        q_true = np.asarray(self.attitude_data["quaternions"],dtype=float).copy()
+        qdot_true = np.asarray(self.attitude_data["quaternion_rates"],dtype=float).copy()
+        t_vec = np.asarray(self.attitude_data["time"],dtype=float).copy()
 
-        # Common preprocessing (do once)
-        t_vec = np.round(self.attitude_data['time'], n_digits)
-        t_req = np.round(np.arange(t_vec[0], t_vec[-1] + dt_req, dt_req), n_digits)
-        t_gps_interp = CubicSpline(t_vec, t_vec, axis=0)
+        # ============================================================
+        # CRITICAL DIFFERENCE FROM YOUR OLD FUNCTION
+        #
+        # The standalone benchmark NORMALIZES the truth quaternions.
+        # Do exactly the same thing here.
+        # ============================================================
+        q_norm = np.linalg.norm(q_true, axis=1, keepdims=True)
 
+        if np.any(q_norm <= 0.0):
+            raise ValueError("Found zero-length quaternion in truth data.")
+
+        q_true /= q_norm
+
+        # ------------------------------------------------------------
+        # Validate
+        # ------------------------------------------------------------
+        if len(t_vec) < 3:
+            raise ValueError("Not enough attitude samples.")
+
+        if np.any(~np.isfinite(t_vec)):
+            raise ValueError("Non-finite time values found.")
+
+        if np.any(np.diff(t_vec) <= 0):
+            raise ValueError("Attitude time vector must be strictly increasing.")
+
+        if q_true.shape[0] != len(t_vec):
+            raise ValueError("Quaternion and time arrays have different lengths.")
+
+        if qdot_true.shape[0] != len(t_vec):
+            raise ValueError("Quaternion-rate and time arrays have different lengths.")
+
+        # ============================================================
+        # INTERNAL INTERPOLATOR FACTORY
+        # ============================================================
+        def build_interpolator(method,t_key,q_key,qdot_key,fix_sign_swap=False,):
+
+            method_upper = method.upper()
+
+            if method_upper == "SLERP":
+                return quat_squad.make_slerp_interpolator(t_key,q_key,qdot_key,fix_sign_swap,)
+
+            elif method_upper == "CUBIC-SPLINE":
+                return quat_squad.make_cubic_spline_interpolator(t_key,q_key[:, :4],fix_sign_swap,)
+
+            elif method_upper == "HERMITE":
+                return quat_squad.make_hermite_interpolator(t_key,q_key,qdot_key,)
             
+            elif method_upper == "SQUAD":
+                return quat_squad.make_squad_interpolator(t_key,q_key,qdot_key,)
 
-        def process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=False):
-            """
-            Internal worker that produces one set of CSVs for either:
-                do_respect_rate == False -> dense 5 ms sampling
-                do_respect_rate == True  -> sampling at 1/update_rate
-            Returns result_for_selected (for plotting) if the processed combo matches selected UI combo.
-            """
+            elif method_upper == "AOCS-EXPONENTIAL":
+                return quat_squad.make_aocs_exponential_predictor(t_key,q_key,qdot_key,)
+
+            elif method_upper == "AOCS-TAYLOR":
+                return quat_squad.make_aocs_taylor_predict(t_key,q_key,qdot_key,)
+            
+            elif method_upper == "QUADRATIC":
+                return quat_squad.make_quadratic_interp_2pts_smarter(t_key,q_key,qdot_key,)
+
+            else:
+                raise ValueError(f"Unknown interpolation method: {method}")
+
+        # ============================================================
+        # PROCESS ONE SWAP / NON-SWAP SET
+        # ============================================================
+        def process_quaternion_prediction(apply_sign_swap=False,do_respect_rate=False,):
+
             result_for_selected = None
+
             if self.rsepect_rate_flag:
                 do_respect_rate = True
 
             for update_rate in update_rates:
+                keyframe_stride = int(round((1.0 / update_rate) / dt_req))
+
+                if keyframe_stride < 1:
+                    keyframe_stride = 1
+                print(f"\nUpdate rate = {update_rate} Hz "f"-> keyframe stride = {keyframe_stride}")
+
+                base_key_indices = np.arange(0,len(t_vec),keyframe_stride,)
+
+                # Always include final truth sample.
+                if base_key_indices[-1] != len(t_vec) - 1:
+                    base_key_indices = np.append( base_key_indices, len(t_vec) - 1,)  
+                # ========================================================
+                # LATENCY LOOP
+                # ========================================================
                 for latency in latencies:
-                    # decide timestep for evaluation
-                    dt_eval = (1.0 / update_rate) if do_respect_rate else dt_req
-                    t_eval = np.round(np.arange(t_vec[0], t_vec[-1] + dt_eval, dt_eval), n_digits)
+                    # ----------------------------------------------------
+                    # Latency is number of update periods.
+                    # ----------------------------------------------------
+                    dt_update = 1.0 / update_rate
+                    dt_latency = latency * dt_update
 
-                    # timing + latency
-                    dt_gap_att_h = np.round(1 / update_rate, 3)
-                    dt_latency = dt_gap_att_h * latency
-                    t_update_arrival = np.round(np.arange(t_vec[0], t_vec[-1] + dt_gap_att_h, dt_gap_att_h), 3)
+                    # ----------------------------------------------------
+                    # File/folder
+                    # ----------------------------------------------------
+                    output_dir = os.path.join(self.outputdir,"tables",f"{settings_name}_quatpred",)
+                    os.makedirs(output_dir,exist_ok=True,)
+                    suffix = ("_respectrate" if do_respect_rate else "")
+                    predictor_version = ("_v2"    if active_interpolator.upper() == "RK4"    else "")
+                    filename_prefix = ("swapped_true_quat"    if apply_sign_swap    else "true_quat")
 
-                    # file & folder
-                    output_dir = os.path.join(self.outputdir, 'tables', f'{settings_name}_quatpred')
-                    os.makedirs(output_dir, exist_ok=True)
-
-                    suffix = '_respectrate' if do_respect_rate else ''
-                    filename_prefix = 'swapped_true_quat' if apply_sign_swap else 'true_quat'
-                    output_file = os.path.join(output_dir,
-                        f'{filename_prefix}{settings_name}_roll{roll}_pitch{pitch}_yaw{yaw}_{update_rate}Hz_{latency}s_{active_interpolator}{suffix}.csv'
-                    )
-
+                    output_file = os.path.join(output_dir,(f"{filename_prefix}"f"{settings_name}"f"_roll{roll}"
+                                                           f"_pitch{pitch}"f"_yaw{yaw}"f"_{update_rate}Hz"
+                                                           f"_{latency}s"f"_{active_interpolator}"
+                                                           f"{predictor_version}"f"{suffix}.csv"),)
+                    
                     if os.path.exists(output_file):
                         print(f'File exists: {output_file}')
                         if update_rate == selected_update_rate and latency == selected_latency:
                             result_for_selected = self._load_pe_csv(output_file)
                         continue
-
-                    t_start     = t_vec[0] + latency
-                    t_end       = t_vec[-1]
-                    # dt_output   = 1.0 / selected_update_rate
-                    dt_output   = 1.0 / update_rate
-
-                    # Build regular timestamp grid
-                    t_key = np.arange(t_start, t_end + dt_output/2, dt_output)   
-                    # Map each desired time to nearest true sample (left-side for causality)
-                    indices = np.searchsorted(t_vec, t_key, side='right') - 1
-                    indices = np.clip(indices, 0, len(t_vec)-1)
-
-                    # Final delayed + downsampled data
-                    t_key       = t_vec[indices]
-                    q_key       = q_true[indices]
-                    qdot_key    = qdot_true[indices]
-                    fix_sign_swap = self.sign_swap_flag
-
-                    if do_respect_rate:
-                        q_host_true_eval = q_true[indices] # q_host_interp(t_eval)
-                    else:
-                        q_host_true_eval = q_true # q_host_interp(t_eval)                                          
-                    q_host_pred_eval = np.zeros_like(q_host_true_eval)
-                    t_stamps_updates = t_update_arrival - dt_latency                    
-                   
-                    # Evaluate ground truth / predicted times at t_eval
-                    if active_interpolator == 'SLERP':
-                        q_host_interp   = quat_slerp.make_slerp_interpolator(t_key, q_key, qdot_key, fix_sign_swap)
-                        t_gps_interp_eval = t_gps_interp(t_eval)
-                        q_host_pred_eval = q_host_interp(t_eval)
-                        data_full_att_h = q_host_interp(t_stamps_updates)
-                        # pe_remaining = att_pred.vector_angular_error(q_host_true_eval, q_host_pred_eval, v_body=np.array([0, 0, 1]))
-
-                        pe_remaining = np.array([att_pred.vector_angular_error(q_t, q_p, np.array([0,0,1]))
-                                                for q_t, q_p in zip(q_host_true_eval, q_host_pred_eval)
-                                            ])
-                        # pe_remaining = quat_slerp.quat_angle_error(q_host_true_eval, q_host_pred_eval)   # µrad
-                        quat_error = np.array([MEKFComparator.quaternion_error(q_t, q_p)
-                                               for q_t, q_p in zip(q_host_true_eval, q_host_pred_eval)])* 1e6
                     
-                    elif active_interpolator == 'MOD-CUBIC-SPLINE':    
-                        q_host_interp   = quat_slerp.make_cubic_spline_interpolator(t_key, q_key[:,:4], fix_sign_swap)
-                        t_gps_interp_eval = t_gps_interp(t_eval)
-                        q_host_pred_eval = q_host_interp(t_eval)
-                        data_full_att_h = q_host_interp(t_stamps_updates)
-                        # pe_remaining = att_pred.vector_angular_error(q_host_true_eval, q_host_pred_eval, v_body=np.array([0, 0, 1]))
+                    if latency == 0:
+                        key_indices = base_key_indices.copy()
+                    else:
+                        latency_samples = int(round(dt_latency / dt_req))
+                        key_indices = (base_key_indices+ latency_samples)
 
-                        pe_remaining = np.array([att_pred.vector_angular_error(q_t, q_p, np.array([0,0,1]))
-                                                for q_t, q_p in zip(q_host_true_eval, q_host_pred_eval)
-                                            ])
-                        # pe_remaining = quat_slerp.quat_angle_error(q_host_true_eval, q_host_pred_eval)   # µrad
-                        quat_error = np.array([MEKFComparator.quaternion_error(q_t, q_p)
-                                               for q_t, q_p in zip(q_host_true_eval, q_host_pred_eval)])* 1e6
+                        # Do not exceed truth array.
+                        key_indices = key_indices[key_indices < len(t_vec)]
 
-                    elif active_interpolator == 'CUBIC-SPLINE':               
-                        q_host_interp   = CubicSpline(t_key, q_key, axis = 0)
-                        t_gps_interp_eval = t_gps_interp(t_eval)
-                        q_host_true_eval = q_host_interp(t_eval)
+                        # Always keep final available sample.
+                        if len(key_indices) == 0:
+                            print(f"Skipping {update_rate} Hz / " f"latency {latency}: "
+                                  "no keyframes."    )    
+                            continue
 
-                        # t_gps_pred_eval = np.zeros_like(t_gps_interp_eval)
-                        
+                        if key_indices[-1] != len(t_vec) - 1:
+                            key_indices = np.append(key_indices,len(t_vec) - 1,)
 
-                        # optional quaternion sign swap (keeps original logic)                        
-                        if apply_sign_swap:
-                            index = np.where(t_gps_interp_eval == 10)[0]
-                            if len(index) > 0:
-                                q_host_true_eval[index[0]:] = -q_host_true_eval[index[0]:]
+                    # Need at least two keyframes.
+                    if len(key_indices) < 2:
+                        print(f"Skipping {update_rate} Hz / "
+                              f"latency {latency}: "
+                              "fewer than two keyframes.")
+                        continue
 
-                        # data used for held/propagated attitude
-                        data_full_att_h = q_host_interp(t_stamps_updates)
-                        
-                        ii_next_att_h = 0
-                        quat_interp = interp.we_interpolating()
+                    # ====================================================
+                    # 2. KEYFRAME DATA
+                    # ====================================================
+                    t_key = t_vec[key_indices]
+                    q_key = q_true[key_indices]
+                    qdot_key = qdot_true[key_indices]
 
-                        # iterate through evaluation times and compute predicted quat
-                        for ii, t_ii in enumerate(t_gps_interp_eval):
-                            # advance held index if this eval time reached the next update arrival
-                            if ii_next_att_h < len(t_update_arrival) and t_ii >= t_update_arrival[ii_next_att_h] and t_ii < t_update_arrival[-1]:
-                                data_att_h = data_full_att_h[ii_next_att_h]
-                                data_att_h_held = data_att_h  # for propagator off
-                                if ii_next_att_h >= 1:
-                                    try:
-                                        quat_interp.get_quad_interpolant(
-                                            t_both=t_stamps_updates[ii_next_att_h-1:ii_next_att_h+1],
-                                            r_both=data_full_att_h[ii_next_att_h-1:ii_next_att_h+1, :4],
-                                            v_both=(data_full_att_h[ii_next_att_h-1:ii_next_att_h+1, 4:]
-                                                    if data_full_att_h.shape[1] > 4 else np.zeros((2, 4))),
-                                        )
-                                    except Exception as e:
-                                        print(f"Interpolation error: {e}")
-                                ii_next_att_h += 1
+                    # ====================================================
+                    # 3. EVALUATION TIMES                    
+                    # ====================================================
+                    if do_respect_rate:
 
-                            if ii_next_att_h >= 2:
-                                if propagators_enabled:
-                                    data_att_interp = quat_interp.interpolate_flexible(t_ii)
-                                else:
-                                    data_att_interp = data_att_h_held[:4]
-                            else:
-                                data_att_interp = [0, 0, 0, 0]
+                        # Respect update rate. Start at first available keyframe.
+                        t_eval_requested = np.arange(t_key[0],t_vec[-1] + 0.5 * dt_update,dt_update,)
 
-                            q_host_pred_eval[ii, :4] = data_att_interp
-                            #t_gps_pred_eval[ii] = t_ii
+                        # Map to actual truth timestamps.
+                        eval_indices = np.searchsorted(t_vec,t_eval_requested,side="left",)
+                        eval_indices = np.clip(eval_indices,0,len(t_vec) - 1,)
+                        t_eval = t_vec[eval_indices]
 
-                        # compute pointing error using existing att_pred helper
-                        pe_remaining = [
-                            att_pred.eval_pred_error(q_pred_ii, q_true_ii)[1]
-                            for q_pred_ii, q_true_ii in zip(q_host_true_eval[:, :4], q_host_pred_eval[:, :4])
-                        ]
-                        pe_remaining = np.array(pe_remaining)
-                        quat_error = np.array([MEKFComparator.quaternion_error(q_t, q_p)
-                                               for q_t, q_p in zip(q_host_true_eval, q_host_pred_eval)])* 1e6
+                    else:
 
-                    # save dataframe
-                    # note: maintain same columns as original code
+                        eval_indices = np.arange(len(t_vec))
+                        t_eval = t_vec
+
+                    # ====================================================
+                    # 4. TRUE QUATERNIONS
+                    # ====================================================
+                    q_true_eval = q_true[eval_indices]
+
+                    # ====================================================
+                    # 5. BUILD INTERPOLATOR
+                    # ====================================================
+                    q_host_interp = build_interpolator(active_interpolator,t_key,q_key,qdot_key,apply_sign_swap,)
+
+                    # ====================================================
+                    # 6. EVALUATE                                       
+                    # ====================================================
+                    q_pred_eval = np.asarray(q_host_interp(t_eval),dtype=float,)
+
+                    # ====================================================
+                    # 7. NORMALIZE PREDICTION
+                    # ====================================================
+                    pred_norm = np.linalg.norm(q_pred_eval,axis=1,keepdims=True,)
+                    valid = pred_norm[:, 0] > 0.0
+                    q_pred_eval[valid] /= pred_norm[valid]
+
+                    # ====================================================
+                    # 8. Error in µrads
+                    # ====================================================
+                    quat_error = quat_squad.quat_angle_error(q_pred_eval,q_true_eval,)                  
+
+                    # ====================================================
+                    # 9. POINTING ERROR
+                    # ====================================================
+                    pe_remaining = np.asarray([att_pred.vector_angular_error(q_t,q_p,np.array([0.0, 0.0, 1.0]),)  
+                                                 for q_t, q_p in zip(q_true_eval,q_pred_eval,)])
+
+                    # ====================================================
+                    # 10. UPDATE ARRIVAL TIMES
+                    # ====================================================
+                    t_update_arrival = np.arange(t_vec[0],t_vec[-1] + 0.5 * dt_update,dt_update,)
+                    t_stamps_updates = (t_update_arrival - dt_latency)
+
+                    # ====================================================
+                    # 11. ONLY EVALUATE HELD DATA WHERE VALID
+                    # ====================================================
+                    valid_update_times = ((t_stamps_updates >= t_key[0])&(t_stamps_updates <= t_key[-1]))
+
+                    if np.any(valid_update_times):
+                        data_full_att_h = q_host_interp(t_stamps_updates[valid_update_times])
+
+                    else:
+                        data_full_att_h = np.empty((0, 4),dtype=float,)
+
+                    # ====================================================
+                    # 12. SAVE CSV
+                    # ====================================================
                     df_dict = {
-                        'time': t_gps_interp_eval,
-                        'pe': pe_remaining,
-                        'quat_error': quat_error,
-                        'q_true_w': q_host_true_eval[:, 0],
-                        'q_true_x': q_host_true_eval[:, 1],
-                        'q_true_y': q_host_true_eval[:, 2],
-                        'q_true_z': q_host_true_eval[:, 3],
-                        'q_true_w_dot': q_host_true_eval[:, 0],
-                        'q_true_x_dot': q_host_true_eval[:, 1],
-                        'q_true_y_dot': q_host_true_eval[:, 2],
-                        'q_true_z_dot': q_host_true_eval[:, 3],
-                        'q_pred_w': q_host_pred_eval[:, 0],
-                        'q_pred_x': q_host_pred_eval[:, 1],
-                        'q_pred_y': q_host_pred_eval[:, 2],
-                        'q_pred_z': q_host_pred_eval[:, 3],
+                        "time": t_eval,
+                        "pe": pe_remaining,
+                        "quat_error": quat_error,
+                        "q_true_w": q_true_eval[:, 0],
+                        "q_true_x": q_true_eval[:, 1],
+                        "q_true_y": q_true_eval[:, 2],
+                        "q_true_z": q_true_eval[:, 3],
+
+                        # FIX:
+                        # These were incorrectly filled with q_true.
+                        "q_true_w_dot": qdot_true[eval_indices, 0],
+                        "q_true_x_dot": qdot_true[eval_indices, 1],
+                        "q_true_y_dot": qdot_true[eval_indices, 2],
+                        "q_true_z_dot": qdot_true[eval_indices, 3],
+                        "q_pred_w": q_pred_eval[:, 0],
+                        "q_pred_x": q_pred_eval[:, 1],
+                        "q_pred_y": q_pred_eval[:, 2],
+                        "q_pred_z": q_pred_eval[:, 3],
                     }
-                    pd.DataFrame(df_dict).to_csv(output_file, index=False)
-                    swap_msg = 'swapped quaternions ' if apply_sign_swap else ''
-                    mode_msg = ' (respect update rate)' if do_respect_rate else ''
-                    print(f'Saved {swap_msg}{output_file}{mode_msg}')
 
-                    # if this is the UI-selected combo, capture for visualization
-                    if update_rate == selected_update_rate and latency == selected_latency:
+                    pd.DataFrame(df_dict).to_csv(output_file,index=False,)
+
+                    print(
+                        f"Saved {output_file} | "
+                        f"keyframes={len(key_indices)} | "
+                        f"eval={len(t_eval)} | "
+                        f"RMS={np.sqrt(np.mean(quat_error**2)):.6g} urad | "
+                        f"MAX={np.max(quat_error):.6g} urad"
+                    )
+
+                    # ====================================================
+                    # 13. SELECTED RESULT
+                    # ====================================================
+                    if (
+                        update_rate == selected_update_rate
+                        and latency == selected_latency
+                    ):
+
                         result_for_selected = {
-                            'time': t_gps_interp_eval,
-                            # 'time_key': t_key,
-                            # 't_eval' :t_eval,
-                            # 'q_key': q_key,
-                            'pe': pe_remaining,
-                            'quat_error': quat_error,
-                            'q_true': q_host_true_eval,
-                            'q_pred': q_host_pred_eval,
-                            't_from_0': t_gps_interp_eval - t_gps_interp_eval[0],
-                            # 't_stamps_updates': t_stamps_updates,
-                            'data_full_att_h': data_full_att_h
+                            "time": t_eval,
+                            "time_key": t_key,
+                            "t_eval": t_eval,
+                            "q_key": q_key,
+                            "q_key_dot": qdot_key,
+                            "pe": pe_remaining,
+                            "quat_error": quat_error,
+                            "q_true": q_true_eval,
+                            "q_pred": q_pred_eval,
+                            "t_from_0": (    t_eval - t_eval[0]),
+                            "t_stamps_updates": t_stamps_updates,
+                            "data_full_att_h":  data_full_att_h,
+                            "key_indices":   key_indices,
+                            "update_rate": update_rate,
+                            "latency": latency,
+                            "dt_latency": dt_latency,
+                            "keyframe_stride": keyframe_stride,
                         }
-
-            # # ====================== STATISTICS ======================
-            # print("\n" + "="*80)
-            # print("      REAL QUATERNION INTERPOLATION COMPARISON (vs True High-Rate Data)")
-            # print("="*80)
-            # print(f"Keyframes: {len(result_for_selected['time_key'])} @ ~{1/np.mean(np.diff(result_for_selected['time_key'])):.1f} Hz")
-            # print(f"Truth:     {len(self.attitude_data['time'])} points @ ~{1/np.mean(np.diff(self.attitude_data['time'])):.1f} Hz")
-            # print("Error metrics (µrad):")
-            # print("-"*80)
-            # print(f"{'Method':<12} {'Mean (µrad)':>12} {'RMS (µrad)':>12} {'Max (µrad)':>12} {'99th %ile':>12}")
-            # print("-"*80)
-            # #for name, err in [('SLERP', err_slerp), ('Hermite+ω', err_hermite), ('CubicSpline', err_cubicspline)]:
-            # print(f"{active_interpolator:<12} {np.mean(result_for_selected['pe']):12.2f} {np.sqrt(np.mean(result_for_selected['pe']**2)):12.2f} {np.max(result_for_selected['pe']):12.1f} {np.percentile(result_for_selected['pe'], 99):12.1f}")
-            # print("="*80)
 
             return result_for_selected
 
-        # ---- Generate datasets ----
-        # Always produce the original dense 5 ms CSVs (preserves previous behavior)
-        selected_result = process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=False)
+        # ================================================================
+        # NORMAL
+        # ================================================================
+        selected_result = process_quaternion_prediction(apply_sign_swap=False,do_respect_rate=respect_update_rate,)
 
-        # If user asked to respect update rate, also produce the per-update-rate CSVs (suffix _respectrate)
-        if respect_update_rate:
-            # produce the "respect rate" versions in addition to original
-            process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=True)
+        # ================================================================
+        # SWAPPED
+        # ================================================================
+        if getattr(self, "sign_swap_flag", False):
+            selected_swapped_result = process_quaternion_prediction(apply_sign_swap=True,do_respect_rate=respect_update_rate,)
 
-        # handle sign-swap variants the same way
-        if self.sign_swap_flag:
-            selected_swapped_result = process_quaternion_prediction(apply_sign_swap=True, do_respect_rate=False)
-            if respect_update_rate:
-                process_quaternion_prediction(apply_sign_swap=True, do_respect_rate=True)
+        #   return result_for_selected
 
         # ---- Visualization: keep original behavior unchanged ----
         if selected_result is not None:
@@ -2364,7 +2076,9 @@ class AstraaGUI(QMainWindow):
             pe_tab_index = self.graphics_tabs.indexOf(self.pe_graphics)
             if pe_tab_index != -1:
                 self.graphics_tabs.setCurrentIndex(pe_tab_index)
+
         ##---------------------------------------------------------
+
         fig, axes = plt.subplots(6, 1, figsize=(8, 6), sharex=True)
         components = ['w', 'x', 'y', 'z']
         colors = {'true': 'black', f'{active_interpolator}': 'tab:blue'}
@@ -2389,8 +2103,6 @@ class AstraaGUI(QMainWindow):
 
         # Error plot
         axes[5].plot(selected_result['time'], selected_result['pe'], color=colors[f'{active_interpolator}'], linewidth=2, label=f"{active_interpolator}  | Max: {(self.pe_data['pe']).max():.1f} µrad")
-        #axes[5].plot(t_eval, err_hermite, color=colors['hermite'], linewidth=2.5, label=f'Hermite | Max: {err_hermite.max():.1f} µrad')
-        #axes[5].plot(t_eval, err_cubicspline, '--', color='tab:green', linewidth=1.5, label=f'Cubic Spline | Max: {err_cubicspline.max():.1f} µrad')
         axes[5].set_ylabel('Angular Error [µrad]')
         axes[5].set_xlabel('Time [s]')
         axes[5].set_yscale('log')
@@ -2402,103 +2114,116 @@ class AstraaGUI(QMainWindow):
         output_dir = os.path.join(self.outputdir, 'tables', f'{settings_name}_quatpred')
         os.makedirs(output_dir, exist_ok=True)
 
-        plt.savefig(os.path.join(output_dir, f'{settings_name}_quaternion_interpolation_error.png'), dpi=200, bbox_inches='tight')
+        plt.savefig('quaternion_interpolation_real_comparison.png', dpi=200, bbox_inches='tight')
         plt.show()
+        # return selected_result
+
         ##---------------------------------------------------------
 
-       
 
+        # # ---- Animation (unchanged) ----
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        RPY=np.array([roll,pitch,yaw])
 
-        # ---- Animation (unchanged) ----
-        # RPY = np.array([roll, pitch, yaw])
-        # q0 = att_conv.convert_ea2quat(RPY)
-        # if isinstance(q_true, np.ndarray) and q_true.ndim == 2 and q_true.shape[1] >= 4:
-        #     qseq = q_true[:, :4]
-        # else:
-        #     qseq = np.atleast_2d(q_true)[:, :4]
-        # q_full = np.vstack([q0, qseq])
+        q0=R.from_euler('xyz',RPY,degrees=True).as_quat()[[3,0,1,2]].reshape(1,4)
+        qt=np.asarray(q_true,dtype=float)
+        qt=np.atleast_2d(qt)[:,:4]
+        norms=np.linalg.norm(qt,axis=1,keepdims=True)
+        qt=np.divide(qt,norms,out=np.zeros_like(qt),where=norms>1e-12)
+        q_full=np.vstack([q0,qt])
 
-        # verts = np.array([[-1, -1, -1],
-        #                 [ 1, -1, -1],
-        #                 [ 1,  1, -1],
-        #                 [-1,  1, -1],
-        #                 [-1, -1,  1],
-        #                 [ 1, -1,  1],
-        #                 [ 1,  1,  1],
-        #                 [-1,  1,  1]], dtype=float)
-        # faces = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[1,2,6,5],[0,3,7,4]]
+        verts=np.array([
+            [-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+            [-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]
+        ],dtype=float)
 
-        # fig = plt.figure(figsize=(6,6))
-        # ax = fig.add_subplot(111, projection='3d')
-        # ax.set_box_aspect([1,1,1])
-        # rng = 1.6
-        # ax.set_xlim(-rng, rng); ax.set_ylim(-rng, rng); ax.set_zlim(-rng, rng)
-        # ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
+        faces=[
+            [0,1,2,3],[4,5,6,7],
+            [0,1,5,4],[2,3,7,6],
+            [1,2,6,5],[0,3,7,4]
+        ]
 
-        # poly = Poly3DCollection([], facecolors='skyblue', edgecolors='k', alpha=0.9)
-        # ax.add_collection3d(poly)
-        # ax.view_init(elev=20, azim=30)
+        fig=plt.figure(figsize=(6,6))
+        ax=fig.add_subplot(111,projection='3d')
+        ax.set_box_aspect([1,1,1])
+        rng=1.6
+        ax.set_xlim(-rng,rng)
+        ax.set_ylim(-rng,rng)
+        ax.set_zlim(-rng,rng)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.view_init(elev=20,azim=30)
 
-        # axis_colors = ['r', 'g', 'b']
-        # axis_lines = []
-        # axis_length = 1.2
-        # for c in axis_colors:
-        #     ln, = ax.plot([0, 0], [0, 0], [0, 0], color=c, linewidth=2)
-        #     axis_lines.append(ln)
+        poly=Poly3DCollection([],facecolors='skyblue',edgecolors='k',alpha=0.9)
+        ax.add_collection3d(poly)
 
-        # face_lines = []
-        # normal_length = 0.4
-        # for _ in faces:
-        #     ln, = ax.plot([0, 0], [0, 0], [0, 0], color='orange', linewidth=1)
-        #     face_lines.append(ln)
+        axis_len=1.2
+        axis_lines=[ax.plot([0,0],[0,0],[0,0],c=c,lw=2)[0] for c in ['r','g','b']]
 
-        # def update(frame):
-        #     q = q_full[frame]
-        #     norm = np.linalg.norm(q)
-        #     R = np.eye(3) if norm == 0 else att_conv.convert_quat2dcm(q / norm)
-        #     rotated = verts @ R.T
-        #     face_verts = [[rotated[idx] for idx in face] for face in faces]
-        #     poly.set_verts(face_verts)
+        normal_len=0.4
+        face_lines=[ax.plot([0,0],[0,0],[0,0],c='orange',lw=1)[0] for _ in faces]
 
-        #     body_axes = np.array([[1.0, 0.0, 0.0],
-        #                         [0.0, 1.0, 0.0],
-        #                         [0.0, 0.0, 1.0]])
-        #     tips = (body_axes @ R.T) * axis_length
-        #     for i, ln in enumerate(axis_lines):
-        #         x = [0.0, tips[i, 0]]
-        #         y = [0.0, tips[i, 1]]
-        #         z = [0.0, tips[i, 2]]
-        #         ln.set_data(x, y)
-        #         ln.set_3d_properties(z)
+        def update(frame):
+            q=q_full[frame]
+            Rmat=R.from_quat(q[[1,2,3,0]]).as_matrix()
+            rotated=verts@Rmat.T
+            poly.set_verts([[rotated[i] for i in face] for face in faces])
 
-        #     for idx, face in enumerate(faces):
-        #         face_pts = rotated[face]
-        #         center = np.mean(face_pts, axis=0)
-        #         v0 = face_pts[1] - face_pts[0]
-        #         v1 = face_pts[2] - face_pts[0]
-        #         n = np.cross(v0, v1)
-        #         n_norm = np.linalg.norm(n)
-        #         if n_norm > 0: n /= n_norm
-        #         tip = center + n * normal_length
-        #         ln = face_lines[idx]
-        #         ln.set_data([center[0], tip[0]], [center[1], tip[1]])
-        #         ln.set_3d_properties([center[2], tip[2]])
+            tips=np.eye(3)@Rmat.T*axis_len
+            for i,ln in enumerate(axis_lines):
+                ln.set_data([0,tips[i,0]],[0,tips[i,1]])
+                ln.set_3d_properties([0,tips[i,2]])
 
-        #     return tuple([poly] + axis_lines + face_lines)
+            for i,face in enumerate(faces):
+                pts=rotated[face]
+                centre=pts.mean(axis=0)
+                n=np.cross(pts[1]-pts[0],pts[2]-pts[0])
+                n_norm=np.linalg.norm(n)
+                if n_norm>1e-12:
+                    n/=n_norm
+                tip=centre+n*normal_len
+                face_lines[i].set_data([centre[0],tip[0]],[centre[1],tip[1]])
+                face_lines[i].set_3d_properties([centre[2],tip[2]])
 
+            return (poly,*axis_lines,*face_lines)
+
+        try:
+            speed_mult=int(self.update_rate.currentData() or 50)
+        except Exception:
+            speed_mult=50
+
+        data_dt=0.1
+        interval_ms=max(10,int(1000*data_dt/speed_mult))
+
+        anim=FuncAnimation(
+            fig,update,frames=len(q_full),
+            interval=interval_ms,blit=False,repeat=True,
+            cache_frame_data=False
+        )
+
+        self._pe_anim=anim
+        update(0)
+        plt.show(block=False)
+        return anim, selected_result
         # try:
-        #     speed_mult = int(self.update_rate.currentData() or 1)
+        #     speed_mult=int(self.update_rate.currentData() or 1)
         # except Exception:
-        #     speed_mult = 1
-        # base_interval = 5
-        # interval_ms = max(1, int(base_interval / float(speed_mult)))
-        # ani = FuncAnimation(fig, update, frames=len(q_full), interval=interval_ms, blit=False, repeat=True)
-        # self._pe_anim = ani
+        #     speed_mult=1
+
+        # interval_ms=max(1,int(5/float(speed_mult)))
+       
+        # update(0)
+        # ani=FuncAnimation(fig,update,frames=len(q_full),interval=interval_ms,blit=False,repeat=True)
+        # self._pe_anim=ani
+        # fig.canvas.draw_idle()
+        # fig.show()
+        # return ani, selected_result
         # try:
         #     plt.show(block=False)
         # except TypeError:
         #     plt.show()
-        # return ani
+        # return ani , selected_result
         #-------------------------------------------------------------------------------------------------------------
         # ---- Animation (fixed) ----
         # ------------------------------------------------------------
@@ -2588,9 +2313,9 @@ class AstraaGUI(QMainWindow):
 
         #     return (poly, ) + tuple(axis_lines) + tuple(face_lines)
 
-        # ------------------------------------------------------------
-        # 6️⃣  ANIMATION ----------------------------------------------------
-        # ------------------------------------------------------------
+        # # ------------------------------------------------------------
+        # # 6️⃣  ANIMATION ----------------------------------------------------
+        # # ------------------------------------------------------------
         # interval_ms = 50                     # ~20 fps
         # anim = FuncAnimation(fig, update,
         #                     frames=len(q_full),
@@ -2600,6 +2325,7 @@ class AstraaGUI(QMainWindow):
 
         # # keep a reference so it isn’t garbage‑collected
         # plt.show()
+        # return  anim, selected_result
         #-------------------------------------------------------------------------------------------------------------
 
 
@@ -2611,7 +2337,7 @@ class AstraaGUI(QMainWindow):
         #print(f"Active quaternion integrator: {self.active_interpolator}")
         #q_host_interp = CubicSpline(t_vec, q_true, axis=0) if self.active_interpolator == "CubicSpline" else quat_squad.make_quaternion_integrator(t_vec, self.attitude_data['quaternions'], self.attitude_data['quaternion_rates'])  
 
-    def calculate_pe_ephemeris(self):#,host,target):
+    def calculate_pe_ephemeris(self):
         from collections import deque
         from matplotlib.animation import FuncAnimation        
 
@@ -3576,13 +3302,7 @@ class AstraaGUI(QMainWindow):
         )
         
         # Create simulation object and propagate dynamics
-        # dynamics_simulator = dynamics.SingleArcSimulator(
-        #     bodies, integrator_settings, propagator_settings,
-        #     print_dependent_variable_data=False,
-        #     print_state_data=False
-        # )
-        
-        dynamics_simulator =  dynamics.SingleArcSimulator(
+        dynamics_simulator = numerical_simulation.SingleArcSimulator(
             bodies, integrator_settings, propagator_settings,
             print_dependent_variable_data=False,
             print_state_data=False
@@ -3640,29 +3360,18 @@ class AstraaGUI(QMainWindow):
         
     def generate_attitude_selector(self):
         selected_interpolator = self.active_interpolator
-        selected_integrator   = self.active_integrator
-        
-        if selected_interpolator == "CUBIC-SPLINE":
-            print(f'''Attitude generation:
-                Rotation: Euler angles 
-                Integration method: Explicit Euler
-                Interpolation method: {selected_interpolator }
-                Nonlinear coupling: Ignored
-                Large rotations: Underestimated
-                Overall: Poor
-                ''')
-            self.generate_attitude()
-        else:
-            print(f'''Attitude generation:
-                Rotation: Quaternions
-                Integration method: {selected_integrator}
-                Interpolation method: {selected_interpolator}
-                Nonlinear coupling: Preserved
-                Large rotations: Correct
-                Overall: Good
-                
-                ''')
-            self.generate_attitude_new()        
+        selected_integrator   = self.active_integrator      
+
+        print(f'''Attitude generation:
+            Rotation            : Quaternions
+            Integration method  : {selected_integrator}
+            Interpolation method: {selected_interpolator}
+            Nonlinear coupling  : Preserved
+            Large rotations     : Correct
+            Overall quality     : Good
+            
+            ''')
+        self.generate_attitude_new()        
         
     def generate_attitude_new(self):
         """Generate attitude data based on selected settings from JSON, with conditional logic"""
@@ -3854,10 +3563,10 @@ class AstraaGUI(QMainWindow):
         print("="*60)
         print(f"Net rotation from start to end: {net_angle:.3f} deg")
         print(f'''
-        Final roll, pitch, yaw : {ea_all[-1]} [deg] 
-        Final angular velocity : {np.rad2deg(omega_vec_all[-1])} [deg/s]
-        MAX angular velocity : {np.rad2deg(np.max(np.linalg.norm(omega_vec_all, axis = 1))):.3f} [deg/s]
-        constant angular rate : {omega_dot_vec} [deg/s^2]
+        Final roll, pitch, yaw  : {ea_all[-1]} [deg] 
+        Final angular velocity  : {np.rad2deg(omega_vec_all[-1])} [deg/s]
+        MAX angular velocity    : {np.rad2deg(np.max(np.linalg.norm(omega_vec_all, axis = 1))):.3f} [deg/s]
+        constant angular rate   : {omega_dot_vec} [deg/s^2]
         --------------------------------------------------
         Calculated attitude kinematics for {t_end} s, with {t_step} steps
         --------------------------------------------------
@@ -4084,48 +3793,28 @@ class AstraaGUI(QMainWindow):
 
         # Create plotly figure with 2 rows and 2 columns
         fig = make_subplots(rows=2, cols=2,
-                        subplot_titles=(
-                            'Euler Angles', 'Angular Velocities',
-                            'Euler Rates', 'Quaternions'),
-                        horizontal_spacing=0.12,
-                        vertical_spacing=0.12)
+                subplot_titles=(
+                    'Euler Angles', 'Angular Velocities',
+                    'Euler Rates', 'Quaternions'),
+                horizontal_spacing=0.12,
+                vertical_spacing=0.12)
         
         # Add Euler angles (row 1, col 1)
         angles = ['Roll', 'Pitch', 'Yaw']
         for i, angle in enumerate(angles):
-            fig.add_trace(
-                go.Scatter(x=time,
-                        y=(euler_angles[:,i]),
-                        name=angle),
-                row=1, col=1
-            )
+            fig.add_trace(go.Scatter(x=time,y=(euler_angles[:,i]),name=angle),row=1, col=1)
         
         # Add angular velocities (row 1, col 2)
         for i, axis in enumerate(['X', 'Y', 'Z']):
-            fig.add_trace(
-                go.Scatter(x=time,
-                        y=(angular_velocities[:,i]),
-                        name=f'ω{axis}'),
-                row=1, col=2
-            )
+            fig.add_trace(go.Scatter(x=time,y=(angular_velocities[:,i]),name=f'ω{axis}'),row=1, col=2)
         
         # Add Euler rates (row 2, col 1)
         for i, angle in enumerate(angles):
-            fig.add_trace(
-                go.Scatter(x=time,
-                        y=(euler_rates[:,i]),
-                        name=f'{angle} Rate'),
-                row=2, col=1
-            )
+            fig.add_trace(go.Scatter(x=time,y=(euler_rates[:,i]),name=f'{angle} Rate'),row=2, col=1)
         
         # Add quaternions (row 2, col 2)
         for i, comp in enumerate(['w', 'x', 'y', 'z']):
-            fig.add_trace(
-                go.Scatter(x=time,
-                        y=quaternions[:,i],
-                        name=f'q{comp}'),
-                row=2, col=2
-            )
+            fig.add_trace(go.Scatter(x=time,y=quaternions[:,i],name=f'q{comp}'),row=2, col=2)
         
         # Update layout
         fig.update_layout(
@@ -4205,8 +3894,6 @@ class AstraaGUI(QMainWindow):
         with open(output_file, 'w') as f:
             f.write(fig_full.to_html(include_plotlyjs='cdn'))
         print(f"Full-resolution figure saved successfully to {output_file}")
-
-
 
     def normalize(self,v):
         return v/np.linalg.norm(v)
@@ -4328,31 +4015,22 @@ class AstraaGUI(QMainWindow):
             
         # Create plotly figure
         fig = make_subplots(rows=3, cols=1,
-                        subplot_titles=('Azimuth', 'Elevation', 'Range'))
+                subplot_titles=('Azimuth', 'Elevation', 'Range'))
         
         # Add azimuth
-        fig.add_trace(
-            go.Scatter(x=self.link_data['time']/60,
-                    y=np.rad2deg(self.link_data['azimuth']),
-                    name='Azimuth'),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(x=self.link_data['time']/60,
+                        y=np.rad2deg(self.link_data['azimuth']),
+                        name='Azimuth'),row=1, col=1)
         
         # Add elevation
-        fig.add_trace(
-            go.Scatter(x=self.link_data['time']/60,
+        fig.add_trace(go.Scatter(x=self.link_data['time']/60,
                     y=np.rad2deg(self.link_data['elevation']),
-                    name='Elevation'),
-            row=2, col=1
-        )
+                    name='Elevation'), row=2, col=1)
         
         # Add range
-        fig.add_trace(
-            go.Scatter(x=self.link_data['time']/60,
+        fig.add_trace(go.Scatter(x=self.link_data['time']/60,
                     y=self.link_data['range']/1000,  # Convert to km
-                    name='Range'),
-            row=3, col=1
-        )
+                    name='Range'),row=3, col=1)
         
         # Update layout
         fig.update_layout(height=800, showlegend=True)
@@ -4505,15 +4183,9 @@ class AstraaGUI(QMainWindow):
         # ════════════════════════════════════════════════════════════════════════
         # ROW 2 — Pass durations bar chart  [ORIGINAL — unchanged]
         # ════════════════════════════════════════════════════════════════════════
-        fig.add_trace(
-            go.Bar(
-                x=[f"Pass {i+1}" for i in range(len(pass_durations))],
-                y=pass_durations,
-                marker_color='blue',
-                name="Pass Duration (min)"
-            ),
-            row=2, col=1
-        )
+        fig.add_trace(go.Bar(x=[f"Pass {i+1}" for i in range(len(pass_durations))],
+                y=pass_durations,marker_color='blue',
+                name="Pass Duration (min)"),row=2, col=1)
         fig.update_yaxes(title_text="Duration (minutes)", row=2, col=1)
         fig.update_xaxes(title_text="Pass Number", row=2, col=1)
 
@@ -4789,16 +4461,16 @@ class AstraaGUI(QMainWindow):
         # Check if we have all required keys for 3-row plot
         required_keys = ['t_from_0', 'q_true', 'q_pred', 't_stamps_updates', 'data_full_att_h']
         add_qc_comparison = all(k in self.pe_data and self.pe_data[k] is not None for k in required_keys)
-        #add_qc_comparison = False
+        
         # Determine subplot configuration
         if add_qc_comparison:
             num_rows = 4
-            row_heights = [1.0/num_rows] * num_rows # [0.25,0.25,0.25,0.25]
+            row_heights = [1.0/num_rows] * num_rows #[0.33, 0.33, 0.34]
             subplot_titles = ('Pointing Error', 'Quaternion Error', 'Quaternion Components', 'QC Comparison')
             height = 1200
         else:
             num_rows = 3
-            row_heights = [1.0/num_rows] * num_rows #[0.33,0.33,0.33]
+            row_heights = [1.0/num_rows] * num_rows #[0.5, 0.5]
             subplot_titles = ('Pointing Error', 'Quaternion Error', 'Quaternion Components')
             height = 800
         
@@ -4905,7 +4577,6 @@ class AstraaGUI(QMainWindow):
         add_pe_traces(pe_data_display, prefix='')
         if has_swapped:
             add_pe_traces(pe_data_swapped_display, prefix='Swapped ', line_style={'dash': 'dot'})
-        
         add_quat_error_traces(pe_data_display, prefix='')
         if has_swapped:
             add_quat_error_traces(pe_data_swapped_display, prefix='Swapped ', line_style={'dash': 'dot'})
@@ -4931,10 +4602,11 @@ class AstraaGUI(QMainWindow):
         )
         
         # Y-axis labels
-        fig.update_yaxes(title_text="PE [urad]", row=1, col=1)
-        fig.update_yaxes(title_text="QE [urad]", row=2, col=1)
+        fig.update_yaxes(title_text="PE [urad]",  row=1, col=1, type="log")
+        fig.update_yaxes(title_text="QE [urad]",  row=2, col=1, type="log")
         fig.update_yaxes(title_text="Quaternion", row=3, col=1)
-        if add_qc_comparison:            
+
+        if add_qc_comparison:
             fig.update_yaxes(title_text="QC [-]", row=3, col=1)
         
         # X-axis labels
@@ -5023,69 +4695,6 @@ class AstraaGUI(QMainWindow):
 
         print("First est quat :", pe_data_display['q_pred'][0])
         print("Last est quat  :", pe_data_display['q_pred'][-1])
-
-        # k = 0
-        # def update():
-        #     global k
-
-        #     if k >= len(pe_data_display['q_true']):
-        #         return
-
-        #     Rt = self.accessibleNamequat_to_rotmat(pe_data_display['q_true'][k])
-        #     Re = self.accessibleNamequat_to_rotmat(pe_data_display['q_pred'][k])
-
-        #     actor_true.SetUserMatrix(self.make_transform(Rt, [-3,0,0]))
-        #     actor_est.SetUserMatrix (self.make_transform(Re, [ 3,0,0]))
-
-        #     k += 1
-        # plotter.add_callback(update, interval=30)
-        # plotter.show()
-        # for k in range(len(pe_data_display['q_true'])):
-        #     if k % 100 == 0:
-        #         print("Frame", k)
-
-        #     Rt = self.quat_to_matrix(pe_data_display['q_true'][k])
-        #     Re = self.quat_to_matrix(pe_data_display['q_pred'][k])
-
-        #     if k == 0:
-        #         print(np.max(np.abs(pe_data_display['q_true'] - pe_data_display['q_pred'])))
-
-        #     if k == len(pe_data_display['q_true'])-1:
-        #         print(Rt)
-
-        #     # actor_true.user_matrix = self.make_transform(Rt,[-3, 0, 0])
-        #     # actor_est.user_matrix = self.make_transform(Re,[ 3, 0, 0])
-
-        #     actor_true.SetPosition(-3, 0, 0)
-        #     actor_est.SetPosition( 3, 0, 0)
-
-        #     actor_true.SetOrientation(
-        #         *R.from_matrix(Rt).as_euler('xyz', degrees=True)
-        #     )
-
-        #     actor_est.SetOrientation(
-        #         *R.from_matrix(Re).as_euler('xyz', degrees=True)
-        #     )
-
-        #     # text_actor.SetInput(
-        #     #     f"Quaternion Error: {pe_data_display['quat_error'][k]:.3f} deg"
-        #     # )
-        #     plotter.remove_actor(text_actor)
-
-        #     text_actor = plotter.add_text(
-        #         f"Frame: {k}\n"
-        #         f"Orientation Error: {pe_data_display['quat_error'][k]:.3f} deg",
-        #         position="upper_left",
-        #         font_size=14
-        #     )
-
-        #     # plotter.render()
-        #     # adjust speed if needed
-        #     time.sleep(0.02)
-
-        # plotter.close()
-
-        ##-----------END NEW ANIMATION------------------------------
 
     def eci_to_azel(self, sat_pos_eci_km, obs_time_utc, gs_lat_deg, gs_lon_deg, gs_alt_m, orientation='ENU'):
         """
@@ -5597,7 +5206,7 @@ class AstraaGUI(QMainWindow):
         plt.legend()
         plt.grid(True)
         plt.show()
-        
+
         output_filename = os.path.join(self.outputdir,'track_log',f"{target_name}_pass_from {selected_gs}, {self.frame_combo.currentText()}-Frame.png")
         plt.savefig(output_filename, dpi=150, bbox_inches='tight')
         print(f"\n📊 Plot saved to: {output_filename}")
@@ -5651,7 +5260,6 @@ class AstraaGUI(QMainWindow):
             y=site[1]*u.m,
             z=site[2]*u.m
         )
-        
         tle_line1 = None
         tle_line2 = None
 
@@ -5659,6 +5267,7 @@ class AstraaGUI(QMainWindow):
         if target_type == 3:
             self.getfile()
             tle_file = self.data_fname[0]
+            # custom_tle_line1, custom_tle_line2 = self.read_single_tle(tle_file)
             tle_line1, tle_line2 = self.read_single_tle(tle_file)
 
             if tle_line1 is None or tle_line2 is None:
@@ -5700,35 +5309,41 @@ class AstraaGUI(QMainWindow):
                 sun_gcrs    = get_sun(astropy_time)
                 sun_altaz   = sun_gcrs.transform_to(altaz_frame)
                 az, el      = sun_altaz.az.rad, sun_altaz.alt.rad
-                
-            elif target_type == 2:    
-                # tle_line1/2 already resolved above the loop            
+            
+            elif target_type == 2:
+                # tle_line1/2 already resolved above the loop
                 altaz_frame = AltAz(obstime=astropy_time, location=location)
                 moon_gcrs   = get_moon(astropy_time, location=location)
                 moon_altaz  = moon_gcrs.transform_to(altaz_frame)
                 az, el      = moon_altaz.az.rad, moon_altaz.alt.rad
+
+            elif target_type in (0,3):
+                # if target_type == 3:
+                #     tle_line1, tle_line2 = custom_tle_line1, custom_tle_line2
             
-            elif target_type in (0, 3):
-                #_,r_eci, v_eci = self.propagate_tle(tle_line1, tle_line2, astropy_time,output_frame="ECI")                
+                # elif target_type == 0:
+                #     selected_satellite = self.sat_selector.currentText()
+                #     if not selected_satellite:
+                #         QMessageBox.warning(self, "Warning", "Please select a satellite first.")
+                #         return
+
+                #     # Get TLE data for the selected satellite
+                #     tle_data = self.update_tle_info(selected_satellite)                    
+                #     if not tle_data:
+                #         QMessageBox.warning(self, "Warning", "No TLE data available for the selected satellite.")
+                #         return
+
+                #     # Get infotmation from the TLE
+                #     tle_line1 = tle_data.get('line1')
+                #     tle_line2 = tle_data.get('line2')
+                #     sat_name = tle_data.get('name')
+                
+                # _,r_eci, v_eci = self.propagate_tle(tle_line1, tle_line2, astropy_time,output_frame="ECI")
                 # az, el = self.eci_to_azel(r_eci, astropy_time, 
                 #                         gs_lat_deg  = self.gs_data['latitude_deg'], 
                 #                         gs_lon_deg  = self.gs_data['longitude_deg'], 
                 #                         gs_alt_m    = self.gs_data['altitude_km'],
                 #                         orientation = frame)
-    
-                # ── FIX: bypass eci_to_azel entirely — use astropy GCRS→AltAz directly ──
-                # propagate_tle returns r in GCRS (ECI), so wrap it as a GCRS frame object
-                # and let astropy handle all frame rotations (GMST, polar motion, etc.)
-                # sat_gcrs = GCRS(
-                    # CartesianRepresentation(r_eci*u.km),
-                    # obstime=astropy_time
-                # )
-                # altaz_frame = AltAz(obstime=astropy_time, location=location)
-                # sat_altaz   = sat_gcrs.transform_to(altaz_frame)               
-# 
-                # az = float(np.pi/2-sat_altaz.az.rad)   # standard CW from North, [0, 2π) — same convention as Sun/Moon
-                # el = float(sat_altaz.alt.rad)   # elevation above horizon, [−π/2, π/2]
-                
                 err, r_teme_km, v_teme_km_s = sat_propagator.sgp4(astropy_time.jd1, astropy_time.jd2)
                 if err != 0:
                     print(f"[WARN] SGP4 error {err} at {astropy_time.iso}")
@@ -5752,8 +5367,6 @@ class AstraaGUI(QMainWindow):
                 az_ccw  = (2*np.pi - az_geo) % (2*np.pi)  # CCW from North [0, 2π) — 
                 az = float(az_ccw)
                 el = float(sat_altaz.alt.rad)   # above horizon
-
-                    
             else:
                 raise ValueError("target_type must be 'sun' or 'satellite'")
 
@@ -5775,7 +5388,6 @@ class AstraaGUI(QMainWindow):
                 qdot = quat_slerp.quaternion_derivative(q, omega)
 
             # --- Save row ---
-            # gps_time = t_conv.sky_utc2gps(t) if t_conv else None
             gps_time = astropy_time.gps
             if target_type in (0, 3):                
                 rows.append({
@@ -5816,7 +5428,7 @@ class AstraaGUI(QMainWindow):
         frame = frame.upper()
 
         if frame == "NWU":
-            x, y, z = north, -east, up            
+            x, y, z = north, -east, up
         elif frame == "ENU":
             x, y, z = east,  north, up
         elif frame == "NED":
@@ -5832,28 +5444,16 @@ class AstraaGUI(QMainWindow):
         from az/el in a configurable local frame.
         """
 
-
-
         # Local basis in ECEF
         lx, ly, lz = self.local_basis_from_ecef(site_ecef, frame)
         frame = frame.upper()
         
-        # NWU (lx=N, ly=W): E = -ly  → cos(az)*lx - sin(az)*ly
-        # ENU (lx=E, ly=N): E =  lx  → sin(az)*lx + cos(az)*ly
-        # NED (lx=N, ly=E, lz=Down): Up = -lz → cos(az)*lx + sin(az)*ly - sin(el)*lz
-
         if frame == "NWU":
-            z_tel = (np.cos(el) * np.cos(az) * lx
-                - np.cos(el) * np.sin(az) * ly
-                + np.sin(el) * lz)
+            z_tel = (np.cos(el) * np.cos(az) * lx - np.cos(el) * np.sin(az) * ly + np.sin(el) * lz)
         elif frame == "ENU":
-            z_tel = (np.cos(el) * np.sin(az) * lx
-                + np.cos(el) * np.cos(az) * ly
-                + np.sin(el) * lz)
+            z_tel = (np.cos(el) * np.sin(az) * lx + np.cos(el) * np.cos(az) * ly + np.sin(el) * lz)
         elif frame == "NED":
-            z_tel = (np.cos(el) * np.cos(az) * lx
-                + np.cos(el) * np.sin(az) * ly
-                - np.sin(el) * lz)           # Up = -lz in NED
+            z_tel = (np.cos(el) * np.cos(az) * lx + np.cos(el) * np.sin(az) * ly - np.sin(el) * lz)           # Up = -lz in NED
         else:
             raise ValueError("frame must be 'NWU', 'ENU', or 'NED'")
         
@@ -5874,16 +5474,15 @@ class AstraaGUI(QMainWindow):
         #     np.sin(el) * lz )
         # z = self.normalize(z)
 
-        # Telescope body frame
-        # Keep x perpendicular to 'up' direction
+        # # Telescope body frame
+        # # Keep x perpendicular to 'up' direction
         # up_ref = lz
         # x = self.normalize(np.cross(z, up_ref))
         # y = np.cross(z, x)
 
-        # Rotation matrix: ECEF → telescope
+        # # Rotation matrix: ECEF → telescope
         # R_ecef_tel = np.vstack((x, y, z))
         # q = R.from_matrix(R_ecef_tel).as_quat()  # [x,y,z,w]
-
         return np.array([q[3], q[0], q[1], q[2]])  # make scipy convention to scalar-first
     
     def run_phase_calculation(self):
@@ -5944,25 +5543,24 @@ class AstraaGUI(QMainWindow):
             current_time += timedelta(hours=1)
 
         # Create the Plotly figure with subplots
-        # fig = make_subplots(rows=n_rows, cols=1, shared_xaxes=True,
-        #                     subplot_titles=(f'{selected_body} Altitude/Azimuth'))
         fig = make_subplots(
-                        rows=3, cols=1,
-                        specs=[
-                            [{"type": "xy"}],   # row 1: Alt/Az
-                            [{"type": "xy"}],   # row 2: Illumination
-                            [{"type": "geo"}]   # row 3: Map
-                        ],
-                        shared_xaxes=True,      # rows 1 and 2 will share x
-                        vertical_spacing=0.08   # optional: space between plots
-                    )
+                rows=3, cols=1,
+                specs=[
+                    [{"type": "xy"}],   # row 1: Alt/Az
+                    [{"type": "xy"}],   # row 2: Illumination
+                    [{"type": "geo"}]   # row 3: Map
+                ],
+                shared_xaxes=True,      # rows 1 and 2 will share x
+                vertical_spacing=0.08   # optional: space between plots
+                )
 
         # Disable x-axis for row 3 (geo)
         fig.update_xaxes(showticklabels=False, row=3, col=1)
 
         # Altitude
-        fig.add_trace(go.Scatter(x=times_for_plot, y=alt_for_plot, mode='lines+markers', name='Altitude', 
-                                    marker=dict(size=4), line=dict(color='green')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=times_for_plot, 
+                                y=alt_for_plot, mode='lines+markers', name='Altitude', 
+                                marker=dict(size=4), line=dict(color='green')), row=1, col=1)
         
         # Add horizontal line at Altitude 0°
         fig.add_hline(y=0, line_dash="dash", line_color="red", 
@@ -6019,10 +5617,7 @@ class AstraaGUI(QMainWindow):
                 for j,lon in enumerate(lons):
                     obs = earth + skyapi.wgs84.latlon(float(lats[i]), float(lon)) 
                     t_obs = obs.at(map_time)
-                    #m_topo = obs.at(map_time).observe(moon).apparent()
-                    #s_topo = obs.at(map_time).observe(sun).apparent()
-                    #alt_moon, _, _ = m_topo.altaz()
-                    #alt_sun, _, _ = s_topo.altaz()
+                    
                     alt_moon = t_obs.observe(moon).apparent().altaz()[0].degrees
                     alt_sun  = t_obs.observe(sun ).apparent().altaz()[0].degrees
 
@@ -6031,48 +5626,7 @@ class AstraaGUI(QMainWindow):
                         moon_alt_map[i, j] = alt_moon * (illum_global / 100.0)
                     else:
                         moon_alt_map[i, j] = np.nan# 0.0#NaN
-
-                #     alt_moons.append(alt_moon.degrees)
-                #     alt_suns.append(alt_sun.degrees)
                 
-                # alt_moons = np.array(alt_moons)
-                # alt_suns = np.array(alt_suns)
-                
-                # Apply visibility constraints
-                # visible = (alt_moons > 5) & (alt_suns < -3)
-                # illum_map[i, visible] = illum_global
-        
-                    # Moon visible and night-time
-                    # if alt_moon.degrees > 5 and alt_sun.degrees < -3:
-                    #     illum_map[i, j] = illum_global
-                    # else:
-                    #     illum_map[i, j] = 0.0
-                        
-            # --- Plot with Heatmap + Geo projection ---
-            
-            # --- Add as Scattergeo to your existing subplot row 3 ---
-            
-            # fig.add_trace(go.Heatmap(
-            #     z=illum_map,
-            #     x=lons,
-            #     y=lats,
-            #     colorscale='Viridis',
-            #     zmin=0,
-            #     zmax=100,
-            #     colorbar=dict(title="Moon Illumination (%)")
-            # ), row=3, col=1)
-
-
-            # fig.update_geos(
-            #     projection_type="natural earth",
-            #     showcountries=True,
-            #     showcoastlines=True,
-            #     showland=True,
-            #     landcolor="lightgray",
-            #     showocean=True,
-            #     oceancolor="rgb(200, 230, 255)",
-            #     row=3, col=1
-            # )
             # ── Flatten & mask NaNs for Scattergeo ──────────────────────────────────────
             flat_lats = lat_grid.flatten()
             flat_lons = lon_grid.flatten()
@@ -6186,12 +5740,13 @@ class AstraaGUI(QMainWindow):
             raise ValueError("output_frame must be 'ECI' or 'ECEF'")
 
         sat = Satrec.twoline2rv(tle_line1, tle_line2)
+
         N = len(times)
         r_out = np.zeros((N, 3))
         v_out = np.zeros((N, 3))
 
-        # GPS seconds 
-        #times_gps_s = times.gps
+        # GPS seconds (Astropy handles leap seconds correctly)
+        # times_gps_s = times.gps
 
         for i, t in enumerate(times):
             err, r_teme_km, v_teme_km_s = sat.sgp4(t.jd1, t.jd2)
@@ -6201,8 +5756,6 @@ class AstraaGUI(QMainWindow):
             # TEME state
             pos = CartesianRepresentation(r_teme_km * u.km)
             vel = CartesianDifferential(v_teme_km_s * u.km / u.s)
-            # pos  = CartesianRepresentation(r_teme_km[0]*u.km, r_teme_km[1]*u.km, r_teme_km[2]*u.km)
-            # vel  = CartesianDifferential(v_teme_km_s[0]*u.km/u.s, v_teme_km_s[1]*u.km/u.s, v_teme_km_s[2]*u.km/u.s)
             teme = TEME(pos.with_differentials(vel), obstime=t)
 
             # TEME → GCRS (ECI) (IAU rotation matrices, mean equinox-> celestial ref, time)
@@ -6212,14 +5765,11 @@ class AstraaGUI(QMainWindow):
                 gcrs = teme.transform_to(GCRS(obstime=t))
                 r = gcrs.cartesian.xyz.to_value(u.km)
                 v = gcrs.velocity.d_xyz.to_value(u.km / u.s)
-                # v = gcrs.cartesian.differentials['s'].d_xyz.to(u.km/u.s).value
 
             else:  # ECEF (Earth Rotation Angle (ERA), UT1-UTC, Polar motion)
                 itrs = gcrs.transform_to(ITRS(obstime=t))
                 r = itrs.cartesian.xyz.to_value(u.km)
                 v = itrs.velocity.d_xyz.to_value(u.km / u.s)
-                # v = itrs.cartesian.differentials['s'].d_xyz.to(u.km/u.s).value
-
 
             r_out[i] = r
             v_out[i] = v
@@ -6292,10 +5842,7 @@ class AstraaGUI(QMainWindow):
 
         df = pd.read_csv(csv_path)
         # Reconstruct arrays for plotting
-        time = df['time'].values
-        # t_key = df['t_key'].values
-        # t_eval = df['t_eval'].values
-        # q_key  =  df['q_key'].values
+        time = df['time'].values        
         pe = df['pe'].values
         quat_error = df['quat_error'].values
         q_true = np.vstack([df['q_true_w'].values, df['q_true_x'].values, df['q_true_y'].values, df['q_true_z'].values]).T
@@ -6303,10 +5850,7 @@ class AstraaGUI(QMainWindow):
         t_from_0 = time - time[0]
         # For t_stamps_updates and data_full_att_h, just use empty arrays (or could reconstruct if saved)
         return {
-            'time': time,
-            # 'time_key': t_key,
-            # 't_eval' :t_eval,
-            # 'q_key': q_key,
+            'time': time,            
             'pe': pe,
             'quat_error':quat_error,
             'q_true': q_true,
@@ -6319,7 +5863,7 @@ class AstraaGUI(QMainWindow):
 
 
 def main(run_gui):
-    # QtWebEngine.initialize()
+    QtWebEngine.initialize()
 
     if run_gui:
         app = QApplication(sys.argv)
@@ -6358,12 +5902,6 @@ def main(run_gui):
 
 
 
-def run_app() -> None:
-    """Console entry point for the installed ``astraa`` command."""
-    main(run_gui=True)
-
-
 if __name__ == "__main__":
-    run_app()
-
-
+    run_gui = 1
+    main(run_gui)

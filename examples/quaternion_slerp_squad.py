@@ -1,5 +1,5 @@
+#%%
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 
 def fix_sign_ambiguity(q):
     q = q.copy()
@@ -61,9 +61,9 @@ def quat_multiply(q1, q2):
 
     return np.stack([w, x, y, z], axis=-1)
 
-def quat_angle_error(q_est, q_ref):
+def quat_angle_error(q_est: np.ndarray, q_ref: np.ndarray)-> float:
     """
-    Smallest angular error between two quaternions (in microradians)
+    Smallest angular error between two quaternions (in µrads)
     Handles double cover automatically (takes shortest arc)
     
     Parameters
@@ -74,7 +74,7 @@ def quat_angle_error(q_est, q_ref):
     Returns
     -------
     angle_urad : ndarray (N,)
-        Angular error in microradians
+        Angular error in µrad
     """
     q_est = np.asarray(q_est)
     q_ref = np.asarray(q_ref)
@@ -494,6 +494,67 @@ def integrate_high_order_aocs(q, omega, alpha, jerk, dt,  norm_threshold=1e-6):
     return q_next, q_dot, omega_next, alpha_next 
 
 # ====================== INTERPOLATORS ======================
+
+def make_quadratic_interp_2pts_smarter(t,q,qdot,normalize_output=True):
+    """
+    Returns the original quadratic 2-point quaternion predictor callable.
+
+    Usage
+    -----
+    predictor=make_quadratic_interp_2pts_smarter(t,q,qdot)
+    q_pred=predictor(t_eval)
+    """
+    t=np.asarray(t,dtype=float)
+    q=np.asarray(q,dtype=float)
+    qdot=np.asarray(qdot,dtype=float)
+
+    if len(q)<3:
+        raise ValueError("Need at least three quaternion samples.")
+    if len(t)!=len(q) or len(q)!=len(qdot):
+        raise ValueError("t, q, and qdot must have same length.")
+    if np.any(np.diff(t)<=0):
+        raise ValueError("t must be strictly increasing.")
+
+    ii_used=[1,2]
+    quat_message_2=np.column_stack((t[ii_used],q[ii_used,:]))
+    quat_dot_message_2=np.column_stack((t[ii_used],qdot[ii_used,:]))
+
+    t0=quat_message_2[0,0]
+    t1=quat_message_2[1,0]
+
+    q_1_full=np.array([quat_message_2[0,1],quat_message_2[1,1],quat_dot_message_2[1,1]]).reshape(3,1)
+    q_2_full=np.array([quat_message_2[0,2],quat_message_2[1,2],quat_dot_message_2[1,2]]).reshape(3,1)
+    q_3_full=np.array([quat_message_2[0,3],quat_message_2[1,3],quat_dot_message_2[1,3]]).reshape(3,1)
+    q_4_full=np.array([quat_message_2[0,4],quat_message_2[1,4],quat_dot_message_2[1,4]]).reshape(3,1)
+
+    A=np.array([[1,t0,t0**2],[1,t1,t1**2],[0,1,2*t1]])
+    Q=np.column_stack((q_1_full,q_2_full,q_3_full,q_4_full))
+    coeff=np.linalg.solve(A,Q)
+
+    coeff_q1=coeff[:,0]
+    coeff_q2=coeff[:,1]
+    coeff_q3=coeff[:,2]
+    coeff_q4=coeff[:,3]
+
+    def predictor(t_vec_prediction):
+        t_vec_prediction=np.atleast_1d(t_vec_prediction)
+
+        q1_predicted=coeff_q1[0]+coeff_q1[1]*t_vec_prediction+coeff_q1[2]*t_vec_prediction**2
+        q2_predicted=coeff_q2[0]+coeff_q2[1]*t_vec_prediction+coeff_q2[2]*t_vec_prediction**2
+        q3_predicted=coeff_q3[0]+coeff_q3[1]*t_vec_prediction+coeff_q3[2]*t_vec_prediction**2
+        q4_predicted=coeff_q4[0]+coeff_q4[1]*t_vec_prediction+coeff_q4[2]*t_vec_prediction**2
+
+        q_out=np.column_stack((q1_predicted,q2_predicted,q3_predicted,q4_predicted))
+
+        if normalize_output:
+            norms=np.linalg.norm(q_out,axis=1,keepdims=True)
+            valid=norms[:,0]>1e-12
+            q_out[valid]/=norms[valid]
+            q_out[~valid]=q[2]
+
+        return q_out
+
+    return predictor
  
 def make_slerp_interpolator(times, quats, qdots=None, sign_swap: bool = False):
     times = np.array(times)
@@ -696,28 +757,10 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
         q_i   = quats[i]
         q_ip1 = quats[i + 1]
 
-        term1 = quat_log(
-            quat_multiply(
-                quat_conjugate(q_i),
-                q_im1
-            )
-        )
-
-        term2 = quat_log(
-            quat_multiply(
-                quat_conjugate(q_i),
-                q_ip1
-            )
-        )
-
+        term1 = quat_log(quat_multiply(quat_conjugate(q_i),q_im1))
+        term2 = quat_log(quat_multiply(quat_conjugate(q_i),q_ip1))
         tangent = -0.25 * (term1 + term2)
-
-        controls[i] = normalize(
-            quat_multiply(
-                q_i,
-                quat_exp(tangent)
-            )
-        )
+        controls[i] = normalize(quat_multiply(q_i,quat_exp(tangent)))
 
     # --------------------------------------------------
     # Interpolator
@@ -725,11 +768,9 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
     def interp(tq):
 
         tq = np.atleast_1d(tq)
-
         out = []
 
         for t in tq:
-
             if t <= times[0]:
                 out.append(quats[0])
                 continue
@@ -741,11 +782,7 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
             i = np.searchsorted(times, t) - 1
             i = np.clip(i, 0, n - 2)
 
-            tau = (
-                (t - times[i])
-                /
-                (times[i+1] - times[i])
-            )
+            tau = ((t - times[i])/(times[i+1] - times[i]))
 
             q0 = quats[i]
             q1 = quats[i+1]
@@ -754,7 +791,6 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
             s1 = controls[i+1]
 
             q = squad(q0, q1, s0, s1, tau)
-
             out.append(normalize(q))
 
         return np.asarray(out)
@@ -851,9 +887,7 @@ def make_aocs_exponential_predictor(t, q, qdot, normalize_output=True, max_step=
             k3 = quaternion_rhs(normalize(q_state + 0.5 * h * k2), omega_2)
             k4 = quaternion_rhs(normalize(q_state + h * k3), omega_4)
 
-            q_state = normalize(
-                q_state + (h / 6.0) * (k1 + 2.0*k2 + 2.0*k3 + k4)
-            )
+            q_state = normalize(q_state + (h / 6.0) * (k1 + 2.0*k2 + 2.0*k3 + k4))
             elapsed += h
 
         return q_state
@@ -893,44 +927,23 @@ def make_aocs_exponential_predictor(t, q, qdot, normalize_output=True, max_step=
 def make_aocs_taylor_predict(t, q, qdot, normalize_output=True):
     """
     Returns an AOCS Taylor quaternion predictor callable.
-
     Usage
     -----
     predictor = aocs_taylor_predict(t, q, qdot)
     q_pred = predictor(t_eval)
-
-
     Inputs
     ------
-    t:
-        Quaternion timestamps (N,)
-
-    q:
-        Quaternion samples (N,4)
-        [w,x,y,z]
-
-    qdot:
-        Quaternion derivatives (N,4)
-
-    normalize_output:
-        Normalize predicted quaternions
-
+    t:        Quaternion timestamps (N,)
+    q:        Quaternion samples (N,4)        [w,x,y,z]
+    qdot:     Quaternion derivatives (N,4)
+    normalize_output:        Normalize predicted quaternions
 
     Model
     -----
     Second-order Taylor expansion:
-
-        q(t+dt) =
-            q1
-          + qdot1*dt
-          + 0.5*qddot*dt^2
-
-
+        q(t+dt) =q1+ qdot1*dt+ 0.5*qddot*dt^2
     where:
-
-        qddot =
-            (qdot1-qdot0)/(t1-t0)
-
+        qddot =(qdot1-qdot0)/(t1-t0)
     """
 
     # -----------------------------
@@ -943,98 +956,52 @@ def make_aocs_taylor_predict(t, q, qdot, normalize_output=True):
 
 
     if len(q) < 2:
-        raise ValueError(
-            "Need at least two quaternion samples."
-        )
+        raise ValueError("Need at least two quaternion samples.")
 
     if len(t) != len(q) or len(q) != len(qdot):
-        raise ValueError(
-            "t, q, and qdot must have same length."
-        )
+        raise ValueError("t, q, and qdot must have same length.")
 
     if np.any(np.diff(t) <= 0):
-        raise ValueError(
-            "t must be strictly increasing."
-        )
-
+        raise ValueError("t must be strictly increasing.")
 
     # Normalize input quaternions
-    q = np.asarray([
-        qi / np.linalg.norm(qi)
-        for qi in q
-    ])
-
+    q = np.asarray([qi / np.linalg.norm(qi) for qi in q])
 
     # -----------------------------
     # Pre-compute quaternion acceleration
     # -----------------------------
-
     qddot = np.zeros_like(qdot)
-
-    qddot[1:] = (
-        qdot[1:] - qdot[:-1]
-    ) / np.diff(t)[:, None]
-
+    qddot[1:] = (qdot[1:] - qdot[:-1]) / np.diff(t)[:, None]
 
     # -----------------------------
     # Predictor function
     # -----------------------------
-
     def predictor(t_eval):
 
         t_eval = np.atleast_1d(t_eval)
-
-        q_out = np.zeros(
-            (len(t_eval),4)
-        )
-
+        q_out = np.zeros((len(t_eval),4))
 
         # Find corresponding keyframe
-        indices = np.searchsorted(
-            t,
-            t_eval,
-            side="right"
-        ) - 1
-
+        indices = np.searchsorted(t,t_eval,side="right") - 1
 
         for k, te in enumerate(t_eval):
-
             # Before first sample
             if te <= t[0]:
                 q_out[k] = q[0]
                 continue
-
-
-            i = np.clip(
-                indices[k],
-                1,
-                len(t)-1
-            )
-
+            i = np.clip(indices[k],1,len(t)-1)
 
             # propagate from latest keyframe
             dt = te - t[i]
-
-
-            q_pred = (
-                q[i]
-                + qdot[i]*dt
-                + 0.5*qddot[i]*dt*dt
-            )
-
+            q_pred = (q[i]+ qdot[i]*dt+ 0.5*qddot[i]*dt*dt)
 
             if normalize_output:
                 norm = np.linalg.norm(q_pred)
-
                 if norm > 1e-12:
                     q_pred /= norm
                 else:
                     q_pred = q[i]
-
-
             q_out[k] = q_pred
-
-
         return q_out
 
 
@@ -1099,11 +1066,11 @@ def _parse_methods(values):
 
 if __name__ == "__main__":
     import numpy as np
-    from scipy.spatial.transform import Rotation as R
+    from scipy.spatial.transform import Rotation as R    
     import argparse
     from pathlib import Path
-    import matplotlib
-    matplotlib.use("Agg")
+    # import matplotlib
+    #matplotlib.use("Agg")
 
     import matplotlib.pyplot as plt
 
@@ -1118,83 +1085,86 @@ if __name__ == "__main__":
     # ====================== CSV BENCHMARK RUNNER ==============
 
     METHODS = {
-        "slerp": make_slerp_interpolator,
-        "hermite": make_hermite_interpolator,
-        "cubic-spline": make_cubic_spline_interpolator,
-        "squad": make_squad_interpolator,
-        "aocs-taylor": make_aocs_taylor_predict,
-        "aocs-exponential": make_aocs_exponential_predictor,
+        "slerp"             : make_slerp_interpolator,
+        "hermite"           : make_hermite_interpolator,
+        "cubic-spline"      : make_cubic_spline_interpolator,
+        "squad"             : make_squad_interpolator,
+        "2nd order Taylor"  : make_aocs_taylor_predict,
+        "Exponential+RK4"   : make_aocs_exponential_predictor,
+        "quadratic"         : make_quadratic_interp_2pts_smarter,
     }
 
-    parser = argparse.ArgumentParser(
-        description="Compare quaternion interpolation methods against an ASTRAA true-quaternion CSV."
-    )
-    parser.add_argument("truth_csv", type=Path, help="ASTRAA CSV containing time,q_w,q_x,q_y,q_z and optional q_*_dot columns.")
-    parser.add_argument(
-        "--methods", nargs="+", default=["all"],
-        help=f"Methods to run (default: all): {', '.join(METHODS)}",
-    )
-    parser.add_argument(
-        "--keyframe-stride", type=int, default=20,
-        help="Use every Nth truth row as an interpolation keyframe (default: 20).",
-    )
-    parser.add_argument("--plot", type=Path, help="Save the error plot to this file.")
-    parser.add_argument("--no-show", action="store_true", help="Do not open the plot window.")
-    args = parser.parse_args()
+    # ================= CONFIG =================
+    TRUTH_CSV=Path("/home/bkhan/Documents/Git/astropynaric/examples/output_data/tables/rocketlab_march_quatpred/true_quat_rocketlab_march.csv")
+    METHODS_TO_RUN= list(METHODS)  # or ["quad"]
+    PLOT=Path("plot.png")
+    NO_SHOW=False
+    UPDATE_RATE = 10  #Hz     
+    # ===========================================
 
-    selected_methods = _parse_methods(args.methods)
-    times, quats, qdots = load_truth_csv(args.truth_csv)
-    key_indices, errors_by_method = benchmark_methods(
-        times, quats, qdots, selected_methods, args.keyframe_stride)
-    print(f"Truth samples: {len(times)} | keyframes: {len(key_indices)} | stride: {args.keyframe_stride}")
-    print("Method                 RMS (urad)     Max (urad)    Mean (urad)")
+    selected_methods=METHODS_TO_RUN
+    times,quats,qdots=load_truth_csv(TRUTH_CSV)
+    KEYFRAME_STRIDE= int(1/(UPDATE_RATE*(times[1]-times[0]))) #200
+    #%%
+    key_indices,errors_by_method=benchmark_methods(times,quats,qdots,selected_methods,KEYFRAME_STRIDE)
+
+    print(f"Truth samples: {len(times)} | update rate:  {UPDATE_RATE} | keyframes: {len(key_indices)} | stride: {KEYFRAME_STRIDE}")
+    print("Method                 RMS (µrad)     Max (µrad)    Mean (µrad)")
     for name, errors in errors_by_method.items():
         print(f"{name:20s} {np.sqrt(np.mean(errors**2)):13.6g} {np.max(errors):14.6g} {np.mean(errors):14.6g}")
+#%% PLOT
+    if PLOT or not NO_SHOW:   
 
-    if args.plot or not args.no_show:
-        import matplotlib.pyplot as plt
+        fig,ax=plt.subplots(figsize=(12,8))
+        for name,errors in errors_by_method.items():
+            ax.plot(times,errors,label=name,linewidth=1.5)
 
-        for name, errors in errors_by_method.items():
-            plt.plot(times, errors, label=name, linewidth=1.5)
-        plt.scatter(times[key_indices], np.zeros(len(key_indices)), marker="|", color="black", label="keyframes")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Attitude error (microrad)")
-        plt.title("Quaternion interpolation error against ASTRAA truth CSV")
-        plt.legend()
-        plt.tight_layout()
-        if args.plot:
-            plt.savefig(args.plot, dpi=200)
-            print(f"Saved plot: {args.plot}")
+        ax.scatter(times[key_indices],np.zeros(len(key_indices)),marker="|",color="black",label="keyframes")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Attitude error (µrad)")
+        ax.set_yscale("log")
+        ax.grid(True,which="major",alpha=0.4)
+        ax.grid(True,which="minor",alpha=0.2)
+
+        update_rate=1/(KEYFRAME_STRIDE*(times[1]-times[0]))
+        ax.set_title("Quaternion interpolation error against ASTRAA truth CSV",fontsize=12,pad=28)
+        ax.text(0.5,1.01,f"True rate:{1/(times[1]-times[0]):.2f}Hz  Update rate: {update_rate:.2f} Hz",transform=ax.transAxes,ha="center",fontsize=9)
+
+        ax.legend()
+
+        table_data=[]
+        for name,errors in errors_by_method.items():
+            table_data.append([
+                name,
+                f"{np.sqrt(np.mean(errors**2)):.6g}",
+                f"{np.max(errors):.6g}",
+                f"{np.mean(errors):.6g}"
+            ])
+
+        table=ax.table(
+            cellText=table_data,
+            colLabels=["Method","RMS","Max","Mean"],
+            cellLoc="center",
+            colLoc="center",
+            bbox=[0,-0.38,1,0.27]
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1,0.55)
+
+        # plt.tight_layout(rect=[0.5,0.15,1,0.5])
+        fig.subplots_adjust(left=0.10,right=0.98,top=0.88,bottom=0.35)
+
+        if PLOT:
+            plt.savefig(PLOT,dpi=200,bbox_inches="tight")
+            print(f"Saved plot: {PLOT}")
+
+        if not NO_SHOW:
             plt.show()
-        if not args.no_show:
-            plt.show()
+
+        plt.close()
 
 
-
-    # quats = [
-    #     np.array([1.0, 0.0, 0.0, 0.0]),
-    #     np.array([0.707, 0.707, 0.0, 0.0]),
-    #     np.array([0.0, 1.0, 0.0, 0.0])
-    # ]
-    # quat_dots = [
-    #     np.array([0.0, 0.1, 0.0, 0.0]),
-    #     np.array([0.0, 0.2, 0.1, 0.0]),
-    #     np.array([0.0, 0.3, 0.0, 0.0])
-    # ]
-
-    # def truth_quaternion(t):
-    #     angle = np.pi/2 * t/1.0   # rad
-
-    #     return np.array([
-    #         np.cos(angle/2),
-            
-            
-    #         np.sin(angle/2),
-    #         0.0,
-    #         0.0           
-            
-    #     ])
-    
-    
 
   
+# %%
