@@ -133,7 +133,6 @@ def eval_pred_error(q_true, q_pred):
         pe_all.append(pe_pred)
     
     return pe_all, np.max(pe_all)
-
 def vector_angular_error(q_true, q_pred, v_body=np.array([0, 0, 1])):
     """
     Calculates the angular difference between a body-frame vector v_body
@@ -158,6 +157,7 @@ def vector_angular_error(q_true, q_pred, v_body=np.array([0, 0, 1])):
     angle_rad = np.arccos(dot_prod)
     
     return angle_rad * 1e6 # microradians
+
 
 if __name__ == '__main__':
     import os, sys

@@ -10,7 +10,7 @@ import os
 import scipy.interpolate as interpolate
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp 
-import splines.quaternion
+# import splines.quaternion
 from tools_pe import calc_dot_angle
 from tools_attitude import extrapolate_quaternion
 import tools_attitude as rot
