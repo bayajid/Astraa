@@ -1811,20 +1811,22 @@ class AstraaGUI(QMainWindow):
         # INTERNAL INTERPOLATOR FACTORY
         # ============================================================
         def build_interpolator(method,t_key,q_key,qdot_key,fix_sign_swap=False,):
+            import quat_pred_comparison as quat_pred
 
             method_upper = method.upper()
 
             if method_upper == "SLERP":
-                return quat_squad.make_slerp_interpolator(t_key,q_key,qdot_key,fix_sign_swap,)
+                return quat_pred.make_slerp_interpolator(t_key,q_key,qdot_key,fix_sign_swap,)
 
             elif method_upper == "CUBIC-SPLINE":
-                return quat_squad.make_cubic_spline_interpolator(t_key,q_key[:, :4],fix_sign_swap,)
+                # return quat_pred.make_cubic_spline_interpolator(t_key,q_key[:, :4],fix_sign_swap,)
+                return quat_pred.make_cubic_spline_interpolator(t_key, q_key, qdot_key, fix_sign_swap)
 
             elif method_upper == "HERMITE":
-                return quat_squad.make_hermite_interpolator(t_key,q_key,qdot_key,)
+                return quat_pred.make_hermite_interpolator(t_key,q_key,qdot_key,)
             
             elif method_upper == "SQUAD":
-                return quat_squad.make_squad_interpolator(t_key,q_key,qdot_key,)
+                return quat_pred.make_squad_interpolator(t_key,q_key,qdot_key,)
 
             elif method_upper == "AOCS-EXPONENTIAL":
                 return quat_squad.make_aocs_exponential_predictor(t_key,q_key,qdot_key,)
@@ -1833,15 +1835,15 @@ class AstraaGUI(QMainWindow):
                 return quat_squad.make_aocs_taylor_predict(t_key,q_key,qdot_key,)
             
             elif method_upper == "QUADRATIC":
-                return quat_squad.make_quadratic_interp_2pts_smarter(t_key,q_key,qdot_key,)
+                return quat_pred.make_quadratic_interp_2pts_smarter(t_key,q_key,qdot_key,)
 
             else:
                 raise ValueError(f"Unknown interpolation method: {method}")
 
         # ============================================================
-        # PROCESS ONE SWAP / NON-SWAP SET
+        # PROCESS ONE SWAP / NON-SWAP SET ( old method, NOT efficient)
         # ============================================================
-        def process_quaternion_prediction(apply_sign_swap=False,do_respect_rate=False,):
+        def process_quaternion_prediction_old(apply_sign_swap=False,do_respect_rate=False,):
 
             result_for_selected = None
 
@@ -2054,6 +2056,134 @@ class AstraaGUI(QMainWindow):
 
             return result_for_selected
 
+        # ============================================================
+        # PROCESS ONE SWAP / NON-SWAP SET  (sliding-window onboard extrapolation)
+        # ============================================================
+        def process_quaternion_prediction(apply_sign_swap=False, do_respect_rate=False):
+
+            result_for_selected = None
+            if self.rsepect_rate_flag:
+                do_respect_rate = True
+
+            method_upper = active_interpolator.upper()
+            # methods that internally need 3 samples get a 3-point window; everything else 2
+            window_size = 3 if method_upper in ("CUBIC-SPLINE", "SQUAD") else 2
+
+            for update_rate in update_rates:
+                # truth stride between onboard update ticks
+                stride = max(1, int(round((1.0 / update_rate) / dt_req)))
+                print(f"\nUpdate rate = {update_rate} Hz -> truth stride = {stride}, window = {window_size}")
+
+                for latency in latencies:
+                    dt_update = 1.0 / update_rate
+                    dt_latency = latency * dt_update
+                    latency_samples = int(round(dt_latency / dt_req))
+
+                    output_dir = os.path.join(self.outputdir, "tables", f"{settings_name}_quatpred")
+                    os.makedirs(output_dir, exist_ok=True)
+                    suffix = "_respectrate" if do_respect_rate else ""
+                    predictor_version = "_v2" if method_upper == "RK4" else ""
+                    filename_prefix = "swapped_true_quat" if apply_sign_swap else "true_quat"
+                    output_file = os.path.join(
+                        output_dir,
+                        f"{filename_prefix}{settings_name}_roll{roll}_pitch{pitch}_yaw{yaw}"
+                        f"_{update_rate}Hz_{latency}s_{active_interpolator}{predictor_version}{suffix}.csv",
+                    )
+
+                    if os.path.exists(output_file):
+                        print(f"File exists: {output_file}")
+                        if update_rate == selected_update_rate and latency == selected_latency:
+                            result_for_selected = self._load_pe_csv(output_file)
+                        continue
+
+                    # onboard update ticks (truth indices); ticks whose delayed data is unavailable are dropped
+                    tick_indices = np.arange(0, len(t_vec), stride)
+                    tick_indices = tick_indices[tick_indices - latency_samples >= 0]
+
+                    if len(tick_indices) <= window_size:
+                        print(f"Skipping {update_rate} Hz / latency {latency}s: not enough onboard ticks.")
+                        continue
+
+                    t_eval_list, q_pred_list, q_true_list = [], [], []
+                    t_stamps_updates_list, data_full_att_h_list = [], []
+
+                    for k in range(window_size, len(tick_indices)):
+                        # data actually available onboard at this tick, after latency delay
+                        win_idx = tick_indices[k - window_size:k] - latency_samples
+                        if np.any(win_idx < 0):
+                            continue
+
+                        t_win = t_vec[win_idx]
+                        q_win = q_true[win_idx]
+                        qdot_win = qdot_true[win_idx]
+
+                        predictor = build_interpolator(active_interpolator, t_win, q_win, qdot_win, apply_sign_swap)
+
+                        t_stamps_updates_list.append(t_win[-1])
+                        data_full_att_h_list.append(q_win[-1])
+
+                        # this predictor is "held" onboard until the next tick's data arrives
+                        idx_start = tick_indices[k]
+                        idx_end = tick_indices[k + 1] if (k + 1) < len(tick_indices) else len(t_vec)
+                        eval_idx = np.arange(idx_start, idx_end) if do_respect_rate else np.array([idx_start])
+                        if len(eval_idx) == 0:
+                            continue
+
+                        t_eval_k = t_vec[eval_idx]
+                        q_pred_k = np.asarray(predictor(t_eval_k), dtype=float)
+                        norms = np.linalg.norm(q_pred_k, axis=1, keepdims=True)
+                        valid = norms[:, 0] > 1e-12
+                        q_pred_k[valid] /= norms[valid]
+
+                        t_eval_list.append(t_eval_k)
+                        q_pred_list.append(q_pred_k)
+                        q_true_list.append(q_true[eval_idx])
+
+                    if not t_eval_list:
+                        print(f"Skipping {update_rate} Hz / latency {latency}s: no predictions generated.")
+                        continue
+
+                    t_eval = np.concatenate(t_eval_list)
+                    q_pred_eval = np.vstack(q_pred_list)
+                    q_true_eval = np.vstack(q_true_list)
+                    t_stamps_updates = np.asarray(t_stamps_updates_list)
+                    data_full_att_h = np.vstack(data_full_att_h_list)
+
+                    eval_indices = np.clip(np.searchsorted(t_vec, t_eval), 0, len(t_vec) - 1)
+
+                    quat_error = quat_squad.quat_angle_error(q_pred_eval, q_true_eval)
+                    pe_remaining = np.asarray([
+                        att_pred.vector_angular_error(q_t, q_p, np.array([0.0, 0.0, 1.0]))
+                        for q_t, q_p in zip(q_true_eval, q_pred_eval)
+                    ])
+
+                    df_dict = {
+                        "time": t_eval, "pe": pe_remaining, "quat_error": quat_error,
+                        "q_true_w": q_true_eval[:, 0], "q_true_x": q_true_eval[:, 1],
+                        "q_true_y": q_true_eval[:, 2], "q_true_z": q_true_eval[:, 3],
+                        "q_true_w_dot": qdot_true[eval_indices, 0], "q_true_x_dot": qdot_true[eval_indices, 1],
+                        "q_true_y_dot": qdot_true[eval_indices, 2], "q_true_z_dot": qdot_true[eval_indices, 3],
+                        "q_pred_w": q_pred_eval[:, 0], "q_pred_x": q_pred_eval[:, 1],
+                        "q_pred_y": q_pred_eval[:, 2], "q_pred_z": q_pred_eval[:, 3],
+                    }
+                    pd.DataFrame(df_dict).to_csv(output_file, index=False)
+                    print(
+                        f"Saved {output_file} | ticks={len(tick_indices)} | eval={len(t_eval)} | "
+                        f"RMS={np.sqrt(np.mean(quat_error**2)):.6g} urad | MAX={np.max(quat_error):.6g} urad"
+                    )
+
+                    if update_rate == selected_update_rate and latency == selected_latency:
+                        result_for_selected = {
+                            "time": t_eval, "pe": pe_remaining, "quat_error": quat_error,
+                            "q_true": q_true_eval, "q_pred": q_pred_eval,
+                            "t_from_0": t_eval - t_eval[0],
+                            "t_stamps_updates": t_stamps_updates,
+                            "data_full_att_h": data_full_att_h,
+                            "update_rate": update_rate, "latency": latency,
+                            "dt_latency": dt_latency, "keyframe_stride": stride,
+                        }
+
+            return result_for_selected
         # ================================================================
         # NORMAL
         # ================================================================
@@ -2085,24 +2215,29 @@ class AstraaGUI(QMainWindow):
         ['q_pred_w','q_pred_x', 'q_pred_y', 'q_pred_z'  ]
         for i in range(4):
             ax = axes[i]
-            ax.plot(self.attitude_data['time'], q_true[:, i], '.', color=colors['true'], markersize=3, alpha=0.7, label='True (high-rate)')
-            #ax.plot(selected_result['time_key'],  selected_result['q_key'][:, i], 'o', color='red', markersize=6, label='Keyframes' if i==0 else None)
-            ax.plot(selected_result['time'], selected_result['q_pred'][:, i], '-', color=colors[f'{active_interpolator}'], linewidth=1.5, label=f'{active_interpolator}')
+            ax.plot(self.attitude_data['time'], q_true[:, i], '.', color=colors['true'], 
+                    markersize=3, alpha=0.7, label='True (high-rate)')
+            
+            ax.plot(selected_result['time'], selected_result['q_pred'][:, i], '-', 
+                    color=colors[f'{active_interpolator}'], linewidth=1.5, label=f'{active_interpolator}')
             ax.set_ylabel(f'q[{components[i]}]')
             ax.grid(True, alpha=0.3)
             if i == 0:
                 ax.legend(fontsize=9)
 
         # Norm plot
-        axes[4].plot(self.attitude_data['time'], np.linalg.norm( q_true, axis=1), '.', color='black', alpha=0.7, label='True')
-        axes[4].plot(selected_result['time'], np.linalg.norm(selected_result['q_pred'], axis=1), color=colors[f'{active_interpolator}'], label=f'{active_interpolator}')
+        axes[4].plot(self.attitude_data['time'], np.linalg.norm( q_true, axis=1), '.', 
+                     color='black', alpha=0.7, label='True')
+        axes[4].plot(selected_result['time'], np.linalg.norm(selected_result['q_pred'], axis=1), 
+                     color=colors[f'{active_interpolator}'], label=f'{active_interpolator}')
         axes[4].axhline(1.0, color='red', linestyle='--', alpha=0.6)
         axes[4].set_ylabel('||q||')
         axes[4].legend(fontsize=9)
         axes[4].grid(True, alpha=0.3)
 
         # Error plot
-        axes[5].plot(selected_result['time'], selected_result['pe'], color=colors[f'{active_interpolator}'], linewidth=2, label=f"{active_interpolator}  | Max: {(self.pe_data['pe']).max():.1f} µrad")
+        axes[5].plot(selected_result['time'], selected_result['pe'], color=colors[f'{active_interpolator}'], 
+                     linewidth=2, label=f"{active_interpolator}  | Max: {(self.pe_data['pe']).max():.1f} µrad | RMS: {np.sqrt(np.mean((self.pe_data['pe'])**2)):.3g}")
         axes[5].set_ylabel('Angular Error [µrad]')
         axes[5].set_xlabel('Time [s]')
         axes[5].set_yscale('log')

@@ -851,17 +851,10 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
     Requires 3 samples.
     """
     times = np.asarray(times, dtype=float)[-3:]
-    quats = normalize(
-        np.asarray(quats, dtype=float)[-3:]
-    )
+    quats = normalize(np.asarray(quats, dtype=float)[-3:])
 
     if len(times) < 3:
-        return make_slerp_interpolator(
-            times,
-            quats,
-            qdots,
-            sign_swap
-        )
+        return make_slerp_interpolator(times,quats,qdots,sign_swap)
 
     # --------------------------------------------------
     # Sign consistency
@@ -883,15 +876,8 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
     # Relative rotations
     # --------------------------------------------------
 
-    dq01 = quat_multiply(
-        quat_conjugate(q0),
-        q1
-    )
-
-    dq12 = quat_multiply(
-        quat_conjugate(q1),
-        q2
-    )
+    dq01 = quat_multiply(quat_conjugate(q0),q1)
+    dq12 = quat_multiply(quat_conjugate(q1),q2)
 
     if dq01[0] < 0:
         dq01 = -dq01
@@ -909,23 +895,9 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
     # SQUAD tangent at q1
     # --------------------------------------------------
 
-    log_10 = quat_log(
-        quat_multiply(
-            quat_conjugate(q1),
-            q0
-        )
-    )
-
-    log_12 = quat_log(
-        quat_multiply(
-            quat_conjugate(q1),
-            q2
-        )
-    )
-
-    tangent = -0.25 * (
-        log_10 + log_12
-    )
+    log_10 = quat_log(quat_multiply(quat_conjugate(q1),q0))
+    log_12 = quat_log(quat_multiply(quat_conjugate(q1),q2))
+    tangent = -0.25 * (log_10 + log_12)
 
     # --------------------------------------------------
     # Final angular velocity
@@ -934,221 +906,195 @@ def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
     # with the SQUAD tangent.
     # --------------------------------------------------
 
-    omega_squad = (
-        2.0 * tangent / dt12
-    )
-
-    omega_final = 0.5 * (
-        omega12 + omega_squad
-    )
+    omega_squad = (2.0 * tangent / dt12)
+    omega_final = 0.5 * (omega12 + omega_squad)
 
     # --------------------------------------------------
     # Estimate angular acceleration
     # --------------------------------------------------
 
-    alpha = (
-        omega12 - omega01
-    ) / (0.5 * (dt01 + dt12))
+    alpha = (omega12 - omega01) / (0.5 * (dt01 + dt12))
 
     def interp(tq):
-
-        tq = np.atleast_1d(
-            np.asarray(tq, dtype=float)
-        )
-
+        tq = np.atleast_1d(np.asarray(tq, dtype=float))
         out = np.empty((len(tq), 4))
 
         for k, t in enumerate(tq):
-
             delta_t = t - times[-1]
-
-            phi = (
-                omega_final * delta_t
-                + 0.5 * alpha * delta_t**2
-            )
-
-            out[k] = quat_multiply(
-                q2,
-                quat_exp(phi)
-            )
-
+            phi = (omega_final * delta_t+ 0.5 * alpha * delta_t**2)
+            out[k] = quat_multiply(q2,quat_exp(phi))
             out[k] = normalize(out[k])
 
         return out
 
     return out
 
-def make_hermite_interpolator(times, quats, qdots, sign_swap: bool = False):
-    """
-    Restricted to the latest 2 points → classic cubic Hermite on SO(3).
-    """
-    times = np.asarray(times, dtype=float)[-2:]
-    quats = normalize(np.asarray(quats, dtype=float)[-2:])
-    qdots = np.asarray(qdots, dtype=float)[-2:]
+# def make_hermite_interpolator(times, quats, qdots, sign_swap: bool = False):
+#     """
+#     Restricted to the latest 2 points → classic cubic Hermite on SO(3).
+#     """
+#     times = np.asarray(times, dtype=float)[-2:]
+#     quats = normalize(np.asarray(quats, dtype=float)[-2:])
+#     qdots = np.asarray(qdots, dtype=float)[-2:]
 
-    omegas = np.array([angular_velocity_from_qdot(q, qd) for q, qd in zip(quats, qdots)])
+#     omegas = np.array([angular_velocity_from_qdot(q, qd) for q, qd in zip(quats, qdots)])
 
-    def interp(tq):
-        tq = np.atleast_1d(tq)
-        out = []
-        for t in tq:
-            if t <= times[0]:
-                delta_t = t - times[0]
-                q = quat_multiply(quats[0], quat_exp(omegas[0] * delta_t))
-            elif t >= times[-1]:
-                delta_t = t - times[-1]
-                q = quat_multiply(quats[-1], quat_exp(omegas[-1] * delta_t))
-            else:
-                t0, t1 = times[0], times[1]
-                tau = (t - t0) / (t1 - t0)
-                tau2, tau3 = tau**2, tau**3
+#     def interp(tq):
+#         tq = np.atleast_1d(tq)
+#         out = []
+#         for t in tq:
+#             if t <= times[0]:
+#                 delta_t = t - times[0]
+#                 q = quat_multiply(quats[0], quat_exp(omegas[0] * delta_t))
+#             elif t >= times[-1]:
+#                 delta_t = t - times[-1]
+#                 q = quat_multiply(quats[-1], quat_exp(omegas[-1] * delta_t))
+#             else:
+#                 t0, t1 = times[0], times[1]
+#                 tau = (t - t0) / (t1 - t0)
+#                 tau2, tau3 = tau**2, tau**3
 
-                q0 = quats[0]
-                q1 = quats[1].copy()
-                if np.dot(q0, q1) < 0.0:
-                    q1 = -q1
+#                 q0 = quats[0]
+#                 q1 = quats[1].copy()
+#                 if np.dot(q0, q1) < 0.0:
+#                     q1 = -q1
 
-                h00 =  2*tau3 - 3*tau2 + 1
-                h10 =    tau3 - 2*tau2 + tau
-                h01 = -2*tau3 + 3*tau2
-                h11 =    tau3 -   tau2
+#                 h00 =  2*tau3 - 3*tau2 + 1
+#                 h10 =    tau3 - 2*tau2 + tau
+#                 h01 = -2*tau3 + 3*tau2
+#                 h11 =    tau3 -   tau2
 
-                log_rel = quat_log(quat_multiply(quat_conjugate(q0), q1))
-                v0 = omegas[0] * (t1 - t0)
-                v1 = omegas[1] * (t1 - t0)
+#                 log_rel = quat_log(quat_multiply(quat_conjugate(q0), q1))
+#                 v0 = omegas[0] * (t1 - t0)
+#                 v1 = omegas[1] * (t1 - t0)
 
-                log_interp = h00*0.0 + h10*v0 + h01*log_rel + h11*v1
-                q = normalize(quat_multiply(q0, quat_exp(log_interp)))
-            out.append(q)
-        return np.array(out)
-    return interp
+#                 log_interp = h00*0.0 + h10*v0 + h01*log_rel + h11*v1
+#                 q = normalize(quat_multiply(q0, quat_exp(log_interp)))
+#             out.append(q)
+#         return np.array(out)
+#     return interp
 
-def make_cubic_spline_interpolator(times, quats, qdots=None, sign_swap: bool = False):
-    """
-    Restricted to the latest 2 (or 3 if available) points.
-    With only 2 points this becomes a cubic Hermite in log-space
-    (the only meaningful cubic that can be built from 2 samples).
-    """
-    n_use = min(3, len(times))          # use last 2 or 3
-    times = np.asarray(times, dtype=float)[-n_use:]
-    quats = normalize(np.asarray(quats, dtype=float)[-n_use:])
-    if n_use == 2:
-        return make_hermite_interpolator(
-            times,
-            quats,
-            qdots,
-            sign_swap
-        )
+# def make_cubic_spline_interpolator(times, quats, qdots=None, sign_swap: bool = False):
+#     """
+#     Restricted to the latest 2 (or 3 if available) points.
+#     With only 2 points this becomes a cubic Hermite in log-space
+#     (the only meaningful cubic that can be built from 2 samples).
+#     """
+#     n_use = min(3, len(times))          # use last 2 or 3
+#     times = np.asarray(times, dtype=float)[-n_use:]
+#     quats = normalize(np.asarray(quats, dtype=float)[-n_use:])
+#     if n_use == 2:
+#         return make_hermite_interpolator(times,quats,qdots,sign_swap)
 
-    if qdots is not None:
-        qdots = np.asarray(qdots, dtype=float)[-n_use:]
-        omegas = np.array([angular_velocity_from_qdot(q, qd) for q, qd in zip(quats, qdots)])
-    else:
-        omegas = np.zeros((n_use, 3))
-        for i in range(1, n_use):
-            dq = quat_multiply(quat_conjugate(quats[i-1]), quats[i])
-            if dq[0] < 0:
-                dq = -dq
-            omegas[i] = 2.0 * quat_log(dq) / max(times[i]-times[i-1], 1e-12)
-        omegas[0] = omegas[1]
+#     if qdots is not None:
+#         qdots = np.asarray(qdots, dtype=float)[-n_use:]
+#         omegas = np.array([angular_velocity_from_qdot(q, qd) for q, qd in zip(quats, qdots)])
+#     else:
+#         omegas = np.zeros((n_use, 3))
+#         for i in range(1, n_use):
+#             dq = quat_multiply(quat_conjugate(quats[i-1]), quats[i])
+#             if dq[0] < 0:
+#                 dq = -dq
+#             omegas[i] = 2.0 * quat_log(dq) / max(times[i]-times[i-1], 1e-12)
+#         omegas[0] = omegas[1]
 
-    # cumulative log relative to the oldest of the kept points
-    log_pos = np.zeros((n_use, 3))
-    cum = quats[0].copy()
-    for i in range(1, n_use):
-        q_rel = quat_multiply(quat_conjugate(cum), quats[i])
-        if q_rel[0] < 0:
-            q_rel = -q_rel
-        log_pos[i] = log_pos[i-1] + quat_log(q_rel)
-        cum = quat_multiply(cum, quat_exp(quat_log(q_rel)))
+#     # cumulative log relative to the oldest of the kept points
+#     log_pos = np.zeros((n_use, 3))
+#     cum = quats[0].copy()
+#     for i in range(1, n_use):
+#         q_rel = quat_multiply(quat_conjugate(cum), quats[i])
+#         if q_rel[0] < 0:
+#             q_rel = -q_rel
+#         log_pos[i] = log_pos[i-1] + quat_log(q_rel)
+#         cum = quat_multiply(cum, quat_exp(quat_log(q_rel)))
 
-    log_vel = omegas.copy()
+#     log_vel = omegas.copy()
 
-    def hermite(t0, t1, p0, p1, v0, v1, t):
-        dt = t1 - t0
-        if dt < 1e-12:
-            return p0
-        s = (t - t0) / dt
-        s2, s3 = s*s, s*s*s
-        h00 =  2*s3 - 3*s2 + 1
-        h10 =    s3 - 2*s2 + s
-        h01 = -2*s3 + 3*s2
-        h11 =    s3 -   s2
-        return h00*p0 + h10*dt*v0 + h01*p1 + h11*dt*v1
+#     def hermite(t0, t1, p0, p1, v0, v1, t):
+#         dt = t1 - t0
+#         if dt < 1e-12:
+#             return p0
+#         s = (t - t0) / dt
+#         s2, s3 = s*s, s*s*s
+#         h00 =  2*s3 - 3*s2 + 1
+#         h10 =    s3 - 2*s2 + s
+#         h01 = -2*s3 + 3*s2
+#         h11 =    s3 -   s2
+#         return h00*p0 + h10*dt*v0 + h01*p1 + h11*dt*v1
 
-    def interp(tq):
-        tq = np.atleast_1d(np.asarray(tq, dtype=float))
-        out = np.zeros((len(tq), 4))
+#     def interp(tq):
+#         tq = np.atleast_1d(np.asarray(tq, dtype=float))
+#         out = np.zeros((len(tq), 4))
 
-        for k, t in enumerate(tq):
-            if t <= times[0]:
-                log_d = log_vel[0] * (t - times[0])
-                out[k] = quat_multiply(quats[0], quat_exp(log_d))
-            elif t >= times[-1]:
-                log_d = log_vel[-1] * (t - times[-1])
-                out[k] = quat_multiply(quats[-1], quat_exp(log_d))
-            else:
-                # find segment among the kept points
-                idx = np.searchsorted(times, t) - 1
-                idx = int(np.clip(idx, 0, n_use-2))
-                t0, t1 = times[idx], times[idx+1]
-                p0, p1 = log_pos[idx], log_pos[idx+1]
-                v0, v1 = log_vel[idx], log_vel[idx+1]
+#         for k, t in enumerate(tq):
+#             if t <= times[0]:
+#                 log_d = log_vel[0] * (t - times[0])
+#                 out[k] = quat_multiply(quats[0], quat_exp(log_d))
+#             elif t >= times[-1]:
+#                 log_d = log_vel[-1] * (t - times[-1])
+#                 out[k] = quat_multiply(quats[-1], quat_exp(log_d))
+#             else:
+#                 # find segment among the kept points
+#                 idx = np.searchsorted(times, t) - 1
+#                 idx = int(np.clip(idx, 0, n_use-2))
+#                 t0, t1 = times[idx], times[idx+1]
+#                 p0, p1 = log_pos[idx], log_pos[idx+1]
+#                 v0, v1 = log_vel[idx], log_vel[idx+1]
 
-                log_t = np.array([hermite(t0, t1, p0[j], p1[j], v0[j], v1[j], t)
-                                  for j in range(3)])
-                out[k] = quat_multiply(quats[0], quat_exp(log_t))
-            out[k] = normalize(out[k])
-        return out
+#                 log_t = np.array([hermite(t0, t1, p0[j], p1[j], v0[j], v1[j], t)
+#                                   for j in range(3)])
+#                 out[k] = quat_multiply(quats[0], quat_exp(log_t))
+#             out[k] = normalize(out[k])
+#         return out
 
-    return interp
+#     return interp
 
-def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
-    """
-    Restricted to the latest 3 points (SQUAD needs at least 3).
-    Falls back to SLERP if only 2 points are available.
-    """
-    n_use = min(3, len(times))
-    times = np.asarray(times, dtype=float)[-n_use:]
-    quats = normalize(np.asarray(quats, dtype=float)[-n_use:])
+# def make_squad_interpolator(times, quats, qdots=None, sign_swap=False):
+#     """
+#     Restricted to the latest 3 points (SQUAD needs at least 3).
+#     Falls back to SLERP if only 2 points are available.
+#     """
+#     n_use = min(3, len(times))
+#     times = np.asarray(times, dtype=float)[-n_use:]
+#     quats = normalize(np.asarray(quats, dtype=float)[-n_use:])
 
-    # sign consistency on the kept points
-    for i in range(1, n_use):
-        if np.dot(quats[i-1], quats[i]) < 0:
-            quats[i] *= -1.0
+#     # sign consistency on the kept points
+#     for i in range(1, n_use):
+#         if np.dot(quats[i-1], quats[i]) < 0:
+#             quats[i] *= -1.0
 
-    if n_use < 3:
-        # fall back to SLERP
-        return make_slerp_interpolator(times, quats, qdots, sign_swap)
+#     if n_use < 3:
+#         # fall back to SLERP
+#         return make_slerp_interpolator(times, quats, qdots, sign_swap)
 
-    # classic SQUAD control points on the 3 samples
-    controls = np.zeros_like(quats)
-    controls[0] = quats[0]
-    controls[-1] = quats[-1]
+#     # classic SQUAD control points on the 3 samples
+#     controls = np.zeros_like(quats)
+#     controls[0] = quats[0]
+#     controls[-1] = quats[-1]
 
-    for i in range(1, n_use-1):
-        q_im1, q_i, q_ip1 = quats[i-1], quats[i], quats[i+1]
-        term1 = quat_log(quat_multiply(quat_conjugate(q_i), q_im1))
-        term2 = quat_log(quat_multiply(quat_conjugate(q_i), q_ip1))
-        tangent = -0.25 * (term1 + term2)
-        controls[i] = normalize(quat_multiply(q_i, quat_exp(tangent)))
+#     for i in range(1, n_use-1):
+#         q_im1, q_i, q_ip1 = quats[i-1], quats[i], quats[i+1]
+#         term1 = quat_log(quat_multiply(quat_conjugate(q_i), q_im1))
+#         term2 = quat_log(quat_multiply(quat_conjugate(q_i), q_ip1))
+#         tangent = -0.25 * (term1 + term2)
+#         controls[i] = normalize(quat_multiply(q_i, quat_exp(tangent)))
 
-    def interp(tq):
-        tq = np.atleast_1d(tq)
-        out = []
-        for t in tq:
-            if t <= times[0]:
-                out.append(quats[0])
-            elif t >= times[-1]:
-                out.append(quats[-1])
-            else:
-                i = np.searchsorted(times, t) - 1
-                i = np.clip(i, 0, n_use-2)
-                tau = (t - times[i]) / (times[i+1] - times[i])
-                q = squad(quats[i], quats[i+1], controls[i], controls[i+1], tau)
-                out.append(normalize(q))
-        return np.asarray(out)
-    return interp
+#     def interp(tq):
+#         tq = np.atleast_1d(tq)
+#         out = []
+#         for t in tq:
+#             if t <= times[0]:
+#                 out.append(quats[0])
+#             elif t >= times[-1]:
+#                 out.append(quats[-1])
+#             else:
+#                 i = np.searchsorted(times, t) - 1
+#                 i = np.clip(i, 0, n_use-2)
+#                 tau = (t - times[i]) / (times[i+1] - times[i])
+#                 q = squad(quats[i], quats[i+1], controls[i], controls[i+1], tau)
+#                 out.append(normalize(q))
+#         return np.asarray(out)
+#     return interp
 
 def load_truth_csv(filename):
     """Load an ASTRAA true-quaternion CSV in scalar-first ``[w, x, y, z]`` order."""
@@ -1279,6 +1225,7 @@ def benchmark_sliding_window(times, quats, qdots, method_names, window_size=2,up
 #%%
 if __name__ == "__main__":
     import numpy as np
+    import os, json
     from scipy.spatial.transform import Rotation as R    
     import argparse
     from pathlib import Path
@@ -1306,18 +1253,37 @@ if __name__ == "__main__":
     }
 
     # ================= CONFIG =================
-    TRUTH_CSV=Path("/home/bkhan/Documents/Git/astropynaric/examples/output_data/tables/" \
-    "rocketlab_march_quatpred/true_quat_rocketlab_march.csv")
+    # TRUTH_CSV=Path("/home/bkhan/Documents/Git/astropynaric/examples/output_data/tables/" \
+    # "rocketlab_march_quatpred/true_quat_rocketlab_march.csv")
+    
+    datadir = "/home/bkhan/Documents/LTB_Succulent/data"
+    files = {
+        "3.5_deg": "20260721_SN31004_LTB2_3.5degps_10Hz_oscillation_GPS_data.json",
+        "2_deg": "20260721_SN31004_LTB2_2degps_10Hz_oscillation_GPS_data.json",
+        "2.8_deg": "20260721_SN31004_LTB2_2.8degps_10Hz_oscillation_GPS_data.json",}
+
+    file = "3.5_deg"
+    json_name = files[file]
+    TRUTH_CSV = os.path.join(datadir,json_name)
+    
     METHODS_TO_RUN= list(METHODS)  # or ["quad"]
     PLOT=Path("plot.png")
     NO_SHOW=False
-    UPDATE_RATE = 4  #Hz 
+    UPDATE_RATE = 10  #Hz 
     #Choose window size (2 or 3)
     WINDOW = 2          # or 3    
     # ===========================================
 
     selected_methods=METHODS_TO_RUN
-    times,quats,qdots=load_truth_csv(TRUTH_CSV)
+    # times,quats,qdots=load_truth_csv(TRUTH_CSV)
+
+    with open(TRUTH_CSV,"r") as f:
+        data = json.load(f)
+
+    quats = normalize(np.array(data["attitudes2"]))
+    qdots = np.array(data["vel_attitudes2"])
+    times = np.array(data["GPS time"])
+
     KEYFRAME_STRIDE= int(1/(UPDATE_RATE*(times[1]-times[0]))) #200
 
    
